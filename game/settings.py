@@ -22,6 +22,12 @@ STATE_PAUSED = "paused"
 STATE_WON = "won"
 STATE_SETTINGS = "settings"
 
+# Compatibility names used by game/game.py
+GAME_STATE_MENU = STATE_MENU
+GAME_STATE_PLAYING = STATE_PLAYING
+GAME_STATE_PAUSED = STATE_PAUSED
+GAME_STATE_WON = STATE_WON
+
 
 # =========================================================
 # COLORS
@@ -113,6 +119,55 @@ DIFFICULTIES = {
 }
 
 
+# This dictionary uses the names expected by game/game.py.
+DIFFICULTY_SETTINGS = {
+    "Easy": {
+        "rows": 17,
+        "cols": 17,
+        "starting_battery": 100,
+        "battery_drain": 1.0,
+        "visibility_radius": 4,
+        "maximum_visibility": 4,
+        "minimum_visibility": 2,
+        "battery_count": 7,
+        "battery_pickups": 7,
+        "battery_restore": 30,
+        "score_bonus": 1000,
+        "time_multiplier": 1.0,
+    },
+
+    "Medium": {
+        "rows": 21,
+        "cols": 21,
+        "starting_battery": 90,
+        "battery_drain": 1.7,
+        "visibility_radius": 3,
+        "maximum_visibility": 3,
+        "minimum_visibility": 1,
+        "battery_count": 5,
+        "battery_pickups": 5,
+        "battery_restore": 25,
+        "score_bonus": 1800,
+        "time_multiplier": 1.4,
+    },
+
+    "Hard": {
+        "rows": 25,
+        "cols": 25,
+        "starting_battery": 80,
+        "battery_drain": 2.4,
+        "visibility_radius": 3,
+        "maximum_visibility": 3,
+        "minimum_visibility": 1,
+        "battery_count": 4,
+        "battery_pickups": 4,
+        "battery_restore": 20,
+        "score_bonus": 2800,
+        "time_multiplier": 1.8,
+    },
+}
+
+
 # =========================================================
 # LAYOUT
 # =========================================================
@@ -152,33 +207,33 @@ def create_fonts():
         "title": pygame.font.SysFont(
             "segoeui",
             64,
-            bold=True
+            bold=True,
         ),
 
         "heading": pygame.font.SysFont(
             "segoeui",
             38,
-            bold=True
+            bold=True,
         ),
 
         "subheading": pygame.font.SysFont(
             "segoeui",
             26,
-            bold=True
+            bold=True,
         ),
 
         "body": pygame.font.SysFont(
             "segoeui",
-            20
+            20,
         ),
 
         "small": pygame.font.SysFont(
             "segoeui",
-            16
+            16,
         ),
 
         "tiny": pygame.font.SysFont(
             "segoeui",
-            13
+            13,
         ),
     }
