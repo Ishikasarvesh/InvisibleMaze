@@ -315,8 +315,6 @@ class Player:
 
         self.draw_torch_glow(
             surface,
-            player_x,
-            player_y,
             glow_radius,
             battery_percentage,
         )
@@ -364,14 +362,16 @@ class Player:
     def draw_torch_glow(
         self,
         surface,
-        center_x,
-        center_y,
         glow_radius,
         battery_percentage,
     ):
         """
         Draws transparent light circles around the player.
         """
+        center_x, center_y = self.get_screen_position()
+        hit_offset_x, hit_offset_y = self.get_wall_hit_offset()
+        center_x += int(hit_offset_x)
+        center_y += int(hit_offset_y)
 
         glow_surface = pygame.Surface(
             surface.get_size(),
