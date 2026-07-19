@@ -50,6 +50,7 @@ class ShadowMonster:
         self.target_y = float(start_y)
 
         self.animation_time = 0.0
+        self.alarm_active = False
 
     def update(
         self,
@@ -74,9 +75,11 @@ class ShadowMonster:
         if battery_percentage < 25:
             speed_multiplier = 1.45
 
+        alarm_multiplier = 1.60 if getattr(self, "alarm_active", False) else 1.0
+
         self.move_timer = max(
             0.15,
-            self.move_interval / speed_multiplier,
+            self.move_interval / (speed_multiplier * alarm_multiplier),
         )
 
         next_position = self.find_next_step(

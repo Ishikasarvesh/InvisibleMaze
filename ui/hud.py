@@ -106,7 +106,7 @@ class HUD:
     # MAIN HUD PANEL
     # =====================================================
 
-    def draw_panel(self, surface):
+    def draw_panel(self, surface, alarm_active=False):
         panel_rect = pygame.Rect(
             20,
             14,
@@ -135,11 +135,17 @@ class HUD:
             border_radius=18,
         )
 
+        border_color = PANEL_BORDER
+        if alarm_active:
+            import math
+            pulse_val = (math.sin(self.animation_time * 8.0) + 1.0) / 2.0
+            border_color = (int(150 + pulse_val * 105), 30, 40)
+
         pygame.draw.rect(
             surface,
-            PANEL_BORDER,
+            border_color,
             panel_rect,
-            width=1,
+            width=2 if alarm_active else 1,
             border_radius=18,
         )
 
@@ -198,6 +204,7 @@ class HUD:
         surface,
         x,
         width,
+        leak_active=False,
     ):
         battery_value = max(
             0,
@@ -300,6 +307,19 @@ class HUD:
                 shine_rect,
                 border_radius=2,
             )
+
+        if leak_active:
+            import random
+            for _ in range(3):
+                spark_x = random.randint(x, x + width)
+                spark_y = random.randint(bar_rect.y - 4, bar_rect.y + bar_rect.height + 4)
+                pygame.draw.line(
+                    surface,
+                    (255, 221, 105),
+                    (spark_x, spark_y),
+                    (spark_x + random.randint(-4, 4), spark_y + random.randint(-4, 4)),
+                    width=2
+                )
 
     # =====================================================
     # LOW BATTERY WARNING
@@ -487,21 +507,25 @@ class HUD:
     # DRAW
     # =====================================================
 
-    def draw_active_powerups(self, surface, active_powerups):
+    def draw_active_effects(self, surface, active_powerups, active_traps):
         import math
-        if not active_powerups:
-            return
-
         text_parts = []
-        for k, v in active_powerups.items():
-            if v > 0:
-                icon = ""
-                if k == "Speed": icon = "⚡ Speed"
-                elif k == "Ghost": icon = "👻 Ghost"
-                elif k == "Torch": icon = "🔦 Torch"
-                elif k == "Freeze": icon = "❄️ Freeze"
-                else: icon = k
-                text_parts.append(f"{icon} {int(math.ceil(v))}s")
+
+        if active_powerups:
+            for k, v in active_powerups.items():
+                if v > 0:
+                    icon = ""
+                    if k == "Speed": icon = "⚡ Speed"
+                    elif k == "Ghost": icon = "👻 Ghost"
+                    elif k == "Torch": icon = "🔦 Torch"
+                    elif k == "Freeze": icon = "❄️ Freeze"
+                    else: icon = k
+                    text_parts.append(f"{icon} {int(math.ceil(v))}s")
+
+        if active_traps:
+            for k, v in active_traps.items():
+                if v > 0:
+                    text_parts.append(f"{k} {int(math.ceil(v))}s")
 
         if not text_parts:
             return
@@ -533,11 +557,17 @@ class HUD:
         score,
         remaining_batteries,
         active_powerups=None,
+        active_traps=None,
+        remaining_traps=None,
     ):
-        self.draw_panel(surface)
+        alarm_active = False
+        if active_traps and active_traps.get("ALARM", 0.0) > 0.0:
+            alarm_active = True
 
-        if active_powerups:
-            self.draw_active_powerups(surface, active_powerups)
+        self.draw_panel(surface, alarm_active=alarm_active)
+
+        if active_powerups or active_traps:
+            self.draw_active_effects(surface, active_powerups, active_traps)
 
         self.draw_info_item(
             surface,
@@ -583,10 +613,24 @@ class HUD:
             GREEN,
         )
 
+        if remaining_traps is not None:
+            self.draw_info_item(
+                surface,
+                640,
+                "Traps",
+                str(remaining_traps),
+                RED,
+            )
+
+        leak_active = False
+        if active_traps and active_traps.get("BATTERY LEAK", 0.0) > 0.0:
+            leak_active = True
+
         self.draw_battery(
             surface,
             x=700,
             width=330,
+            leak_active=leak_active,
         )
 
         self.draw_low_battery_warning(

@@ -710,3 +710,114 @@ class ParticleManager:
                 gravity=40,
             )
             self.particles.append(particle)
+
+    def create_red_sparks(
+        self,
+        x,
+        y,
+        amount=15,
+    ):
+        """
+        Creates small red sparks when a Spike trap is triggered.
+        """
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(30, 110)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.3, 0.7),
+                radius=random.uniform(1.5, 3.2),
+                color=random.choice([
+                    (230, 30, 40), # red
+                    (180, 20, 30), # dark red
+                    (255, 80, 80), # light red
+                ]),
+                gravity=45,
+            )
+            self.particles.append(particle)
+
+    def create_smoke_ring(
+        self,
+        x,
+        y,
+        amount=12,
+    ):
+        """
+        Creates expanding dark smoke particles for a Darkness trap.
+        """
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(15, 45)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.5, 1.0),
+                radius=random.uniform(2.5, 5.0),
+                color=random.choice([
+                    (15, 15, 20), # black
+                    (30, 30, 35), # dark grey
+                ]),
+                gravity=0,
+            )
+            self.particles.append(particle)
+
+    def create_teleport_burst(
+        self,
+        x,
+        y,
+        amount=20,
+    ):
+        """
+        Creates purple particles for teleport triggers.
+        """
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(40, 140)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.4, 0.9),
+                radius=random.uniform(2.0, 4.5),
+                color=random.choice([
+                    (160, 32, 240), # purple
+                    (110, 20, 160), # dark purple
+                    (220, 160, 255), # light purple
+                ]),
+                gravity=20,
+            )
+            self.particles.append(particle)
+
+    def create_battery_sparks(
+        self,
+        x,
+        y,
+        amount=12,
+    ):
+        """
+        Creates small electrical yellow sparks.
+        """
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(35, 120)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.25, 0.6),
+                radius=random.uniform(1.2, 2.5),
+                color=random.choice([
+                    (255, 221, 105), # electrical yellow
+                    (255, 207, 70), # dark yellow
+                    (255, 255, 255), # white spark
+                ]),
+                gravity=50,
+            )
+            self.particles.append(particle)

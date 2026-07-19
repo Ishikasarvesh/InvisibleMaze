@@ -11,6 +11,7 @@ from game.maze import Maze
 from game.particles import ParticleManager
 from game.player import Player
 from game.powerups import PowerUpManager
+from game.traps import TrapManager
 from game.settings import (
     BACKGROUND,
     DIFFICULTY_SETTINGS,
@@ -79,6 +80,7 @@ class InvisibleMazeGame:
         self.battery_manager = None
         self.shadow_monster = None
         self.powerup_manager = None
+        self.trap_manager = None
 
         # =================================================
         # SHARED SYSTEMS
@@ -123,6 +125,12 @@ class InvisibleMazeGame:
         self.final_score = 0
         self.screen_flash = 0.0
         self.powerup_score_bonus = 0
+        self.slow_trap_timer = 0.0
+        self.darkness_trap_timer = 0.0
+        self.alarm_trap_timer = 0.0
+        self.battery_leak_timer = 0.0
+        self.teleport_flash = 0.0
+        self.trap_immunity_timer = 0.0
 
         self.elapsed_time = 0.0
         self.game_start_time = 0.0
@@ -428,11 +436,19 @@ class InvisibleMazeGame:
         # =================================================
         # CREATE POWER-UP MANAGER
         # =================================================
+        import game.player
+        game.player.PLAYER_MOVE_SPEED = 12.0
         from game.powerups import PowerUpManager
         self.powerup_manager = PowerUpManager(self.maze, self.fonts)
-        import game.player
-        self.powerup_manager.original_player_speed = float(game.player.PLAYER_MOVE_SPEED)
+        self.powerup_manager.original_player_speed = 12.0
         self.powerup_manager.spawn_powerups(self, int(self.get_setting("powerup_count", 3)))
+
+        # =================================================
+        # CREATE TRAP MANAGER
+        # =================================================
+        from game.traps import TrapManager
+        self.trap_manager = TrapManager(self.maze)
+        self.trap_manager.spawn_traps(self, int(self.get_setting("trap_count", 5)))
 
         # =================================================
         # CREATE MONSTER
@@ -514,6 +530,12 @@ class InvisibleMazeGame:
         self.final_score = 0
         self.screen_flash = 0.0
         self.powerup_score_bonus = 0
+        self.slow_trap_timer = 0.0
+        self.darkness_trap_timer = 0.0
+        self.alarm_trap_timer = 0.0
+        self.battery_leak_timer = 0.0
+        self.teleport_flash = 0.0
+        self.trap_immunity_timer = 0.0
 
         self.elapsed_time = 0.0
         self.game_start_time = time.time()
@@ -677,6 +699,7 @@ class InvisibleMazeGame:
         self.battery_manager = None
         self.shadow_monster = None
         self.powerup_manager = None
+        self.trap_manager = None
 
         if hasattr(
             self.particle_manager,
@@ -989,6 +1012,10 @@ class InvisibleMazeGame:
             )
 
             self.check_battery_collection()
+            if self.powerup_manager:
+                self.powerup_manager.check_collisions(self)
+            if self.trap_manager:
+                self.trap_manager.check_player_cell(self)
             self.check_win_condition()
 
         else:
@@ -1270,9 +1297,31 @@ class InvisibleMazeGame:
 
         self.screen_flash = max(0.0, self.screen_flash - delta_time)
 
+        # Count down trap effect timers
+        self.slow_trap_timer = max(0.0, self.slow_trap_timer - delta_time)
+        self.darkness_trap_timer = max(0.0, self.darkness_trap_timer - delta_time)
+        self.alarm_trap_timer = max(0.0, self.alarm_trap_timer - delta_time)
+        self.battery_leak_timer = max(0.0, self.battery_leak_timer - delta_time)
+        self.teleport_flash = max(0.0, self.teleport_flash - delta_time)
+        self.trap_immunity_timer = max(0.0, self.trap_immunity_timer - delta_time)
+
+        if self.shadow_monster:
+            self.shadow_monster.alarm_active = (self.alarm_trap_timer > 0.0)
+
+        # Calculate final speed multiplier
+        base_speed = 12.0
+        powerup_mult = 1.40 if (self.powerup_manager and self.powerup_manager.is_active("Speed")) else 1.0
+        trap_mult = 0.55 if self.slow_trap_timer > 0.0 else 1.0
+
+        import game.player
+        game.player.PLAYER_MOVE_SPEED = base_speed * powerup_mult * trap_mult
+
         if self.powerup_manager:
             self.powerup_manager.update(delta_time, self)
             self.powerup_manager.check_collisions(self)
+
+        if self.trap_manager:
+            self.trap_manager.update(delta_time, self)
 
         if hasattr(
             self.player,
@@ -1547,6 +1596,9 @@ class InvisibleMazeGame:
             )
         )
 
+        if getattr(self, "battery_leak_timer", 0.0) > 0.0:
+            drain_rate += 2.0  # Extra drain of 2.0% per second during leak trap
+
         self.battery_percentage -= (
             drain_rate
             * delta_time
@@ -1597,10 +1649,11 @@ class InvisibleMazeGame:
             dynamic_radius,
         )
 
-        if self.powerup_manager and self.powerup_manager.is_active("Torch"):
-            radius += 3
+        super_torch_bonus = 3 if (self.powerup_manager and self.powerup_manager.is_active("Torch")) else 0
+        darkness_penalty = 2 if getattr(self, "darkness_trap_timer", 0.0) > 0.0 else 0
 
-        return radius
+        final_visibility = radius + super_torch_bonus - darkness_penalty
+        return max(1, final_visibility)
 
     # =====================================================
     # SCORE
@@ -1948,6 +2001,14 @@ class InvisibleMazeGame:
         if self.powerup_manager:
             self.powerup_manager.draw(self.screen)
 
+        if self.trap_manager:
+            self.trap_manager.draw(
+                self.screen,
+                self.player.row,
+                self.player.col,
+                visibility_radius,
+            )
+
         self.draw_shadow_monster(
             visibility_radius
         )
@@ -1988,6 +2049,8 @@ class InvisibleMazeGame:
             battery_pct = self.battery_percentage
             if self.powerup_manager and self.powerup_manager.is_active("Torch"):
                 battery_pct = max(100.0, battery_pct + 50.0)
+            if getattr(self, "darkness_trap_timer", 0.0) > 0.0:
+                battery_pct = max(5.0, battery_pct * 0.40)
 
             self.player.draw_torch_glow(
                 self.screen,
@@ -2011,6 +2074,13 @@ class InvisibleMazeGame:
                 self.battery_percentage,
             )
 
+        if getattr(self, "slow_trap_timer", 0.0) > 0.0:
+            self.draw_slow_trap_puddle()
+
+        if getattr(self, "darkness_trap_timer", 0.0) > 0.0:
+            self.draw_darkness_vignette()
+
+        self.draw_teleport_flash()
         self.draw_screen_flash()
         self.draw_monster_damage_flash()
         self.draw_hud()
@@ -2030,6 +2100,37 @@ class InvisibleMazeGame:
                 visibility_radius
             ),
         )
+
+    def draw_slow_trap_puddle(self):
+        px, py = self.get_player_center()
+        # Draw a sticky puddle under player
+        puddle_surf = pygame.Surface((40, 40), pygame.SRCALPHA)
+        pygame.draw.ellipse(puddle_surf, (20, 10, 30, 160), (0, 10, 40, 20))
+        self.screen.blit(puddle_surf, (px - 20, py - 20))
+        # Draw a dark sticky chain line
+        pygame.draw.line(self.screen, (40, 30, 50), (px - 12, py + 5), (px + 12, py + 5), width=3)
+
+    def draw_darkness_vignette(self):
+        if getattr(self, "darkness_vignette_surface", None) is None:
+            w, h = SCREEN_WIDTH, SCREEN_HEIGHT
+            surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            # Create a retro fading dark vignette
+            for i in range(12):
+                alpha = int(180 * (i / 12) ** 2)
+                inset_x = int(w * 0.40 * (1 - i / 12))
+                inset_y = int(h * 0.40 * (1 - i / 12))
+                rect = pygame.Rect(inset_x, inset_y, w - inset_x * 2, h - inset_y * 2)
+                pygame.draw.rect(surf, (0, 0, 0, alpha), rect, width=25)
+            self.darkness_vignette_surface = surf
+        self.screen.blit(self.darkness_vignette_surface, (0, 0))
+
+    def draw_teleport_flash(self):
+        if getattr(self, "teleport_flash", 0.0) <= 0:
+            return
+        alpha = int(120 * (self.teleport_flash / 0.25))
+        surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        surf.fill((160, 32, 240, alpha))
+        self.screen.blit(surf, (0, 0))
 
     def draw_screen_flash(self):
         if getattr(self, "screen_flash", 0.0) <= 0:
@@ -2188,6 +2289,17 @@ class InvisibleMazeGame:
                 active_powerups=(
                     self.powerup_manager.active_powerups
                     if self.powerup_manager
+                    else None
+                ),
+                active_traps={
+                    "SLOWED": self.slow_trap_timer,
+                    "DARKNESS": self.darkness_trap_timer,
+                    "ALARM": self.alarm_trap_timer,
+                    "BATTERY LEAK": self.battery_leak_timer,
+                },
+                remaining_traps=(
+                    self.trap_manager.get_remaining_count()
+                    if self.trap_manager
                     else None
                 ),
             )
