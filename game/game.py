@@ -1,11 +1,12 @@
-import inspect
 import math
+import random
 import sys
 import time
 
 import pygame
 
 from game.battery import BatteryManager
+from game.enemy import ShadowMonster
 from game.maze import Maze
 from game.particles import ParticleManager
 from game.player import Player
@@ -33,48 +34,62 @@ from ui.transitions import TransitionManager
 
 
 class InvisibleMazeGame:
-    """Main controller for the Invisible Maze game."""
+    """
+    Main controller of the Invisible Maze game.
+    """
 
     def __init__(self):
         pygame.init()
-        pygame.display.set_caption("Invisible Maze")
+
+        pygame.display.set_caption(
+            "Invisible Maze"
+        )
 
         self.screen = pygame.display.set_mode(
-            (SCREEN_WIDTH, SCREEN_HEIGHT)
+            (
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+            )
         )
 
         self.clock = pygame.time.Clock()
         self.running = True
+
         self.fonts = create_fonts()
 
-        # =====================================================
+        # =================================================
         # GAME STATE
-        # =====================================================
+        # =================================================
 
         self.game_state = GAME_STATE_MENU
-        self.previous_game_state = GAME_STATE_MENU
+        self.previous_game_state = (
+            GAME_STATE_MENU
+        )
 
         self.selected_difficulty = "Easy"
         self.difficulty_config = None
 
-        # =====================================================
+        # =================================================
         # GAME OBJECTS
-        # =====================================================
+        # =================================================
 
         self.maze = None
         self.player = None
         self.battery_manager = None
+        self.shadow_monster = None
 
-        # =====================================================
+        # =================================================
         # SHARED SYSTEMS
-        # =====================================================
+        # =================================================
 
         self.particle_manager = ParticleManager(
             SCREEN_WIDTH,
             SCREEN_HEIGHT,
         )
 
-        self.hud = HUD(self.fonts)
+        self.hud = HUD(
+            self.fonts
+        )
 
         self.main_menu = MainMenu(
             self.fonts,
@@ -90,11 +105,13 @@ class InvisibleMazeGame:
             self.particle_manager,
         )
 
-        self.transition_manager = TransitionManager()
+        self.transition_manager = (
+            TransitionManager()
+        )
 
-        # =====================================================
+        # =================================================
         # GAME VALUES
-        # =====================================================
+        # =================================================
 
         self.maximum_battery = 100.0
         self.battery_percentage = 100.0
@@ -113,18 +130,33 @@ class InvisibleMazeGame:
         self.exit_particle_interval = 0.08
 
         self.win_animation_started = False
-        self.zero_battery_message_shown = False
 
         self.movement_cooldown = 0.0
         self.movement_delay = 0.08
 
-    # =========================================================
-    # GENERAL HELPERS
-    # =========================================================
+        self.zero_battery_message_shown = (
+            False
+        )
 
-    def get_setting(self, key, default_value):
-        """Return one difficulty setting safely."""
+        # =================================================
+        # MONSTER VALUES
+        # =================================================
 
+        self.monster_damage_cooldown = 0.0
+        self.monster_damage_delay = 2.0
+
+        self.monster_warning_shown = False
+        self.monster_hit_flash = 0.0
+
+    # =====================================================
+    # SETTINGS HELPERS
+    # =====================================================
+
+    def get_setting(
+        self,
+        key,
+        default_value,
+    ):
         if self.difficulty_config is None:
             return default_value
 
@@ -133,38 +165,14 @@ class InvisibleMazeGame:
             default_value,
         )
 
-    @staticmethod
-    def get_parameter_names(callable_object):
-        """Return parameter names from a class or method."""
-
-        try:
-            signature = inspect.signature(
-                callable_object
-            )
-
-            return [
-                name
-                for name in signature.parameters
-                if name != "self"
-            ]
-
-        except (TypeError, ValueError):
-            return []
-
-    def show_notification(self, message):
-        """Show a HUD notification when supported."""
-
-        if hasattr(self.hud, "show_notification"):
-            self.hud.show_notification(message)
-
     def get_start_position(self):
-        """Return the maze starting cell."""
-
-        if self.maze is None:
-            return 1, 1
-
-        if hasattr(self.maze, "start_position"):
-            position = self.maze.start_position
+        if hasattr(
+            self.maze,
+            "start_position",
+        ):
+            position = (
+                self.maze.start_position
+            )
 
             if callable(position):
                 position = position()
@@ -180,19 +188,16 @@ class InvisibleMazeGame:
                 self.maze.start_col,
             )
 
-        if hasattr(self.maze, "start"):
-            return tuple(self.maze.start)
-
         return 1, 1
 
     def get_exit_position(self):
-        """Return the maze exit cell."""
-
-        if self.maze is None:
-            return 1, 1
-
-        if hasattr(self.maze, "exit_position"):
-            position = self.maze.exit_position
+        if hasattr(
+            self.maze,
+            "exit_position",
+        ):
+            position = (
+                self.maze.exit_position
+            )
 
             if callable(position):
                 position = position()
@@ -208,115 +213,88 @@ class InvisibleMazeGame:
                 self.maze.exit_col,
             )
 
-        if hasattr(self.maze, "exit"):
-            return tuple(self.maze.exit)
-
         return (
             self.maze.rows - 2,
             self.maze.cols - 2,
         )
 
-    def get_cell_center(self, row, col):
-        """Return the screen centre of a maze cell."""
+    def maze_is_path(
+        self,
+        row,
+        col,
+    ):
         if self.maze is None:
-            return 0, 0
-        return self.maze.get_cell_center(row, col)
+            return False
 
-    def get_player_center(self):
-        """Return the player's current screen position."""
-
-        if self.player is None:
-            return 0, 0
-
-        if hasattr(self.player, "get_center"):
-            return self.player.get_center()
-
-        if (
-            hasattr(self.player, "x")
-            and hasattr(self.player, "y")
+        if hasattr(
+            self.maze,
+            "is_path",
         ):
+            try:
+                return bool(
+                    self.maze.is_path(
+                        row,
+                        col,
+                    )
+                )
+
+            except (
+                TypeError,
+                IndexError,
+            ):
+                return False
+
+        if hasattr(
+            self.maze,
+            "grid",
+        ):
+            if row < 0 or col < 0:
+                return False
+
+            if row >= len(self.maze.grid):
+                return False
+
+            if col >= len(
+                self.maze.grid[row]
+            ):
+                return False
+
             return (
-                int(self.player.x),
-                int(self.player.y),
+                self.maze.grid[row][col]
+                != 1
             )
 
-        return self.get_cell_center(
-            self.player.row,
-            self.player.col,
-        )
+        return False
 
-    # =========================================================
-    # OBJECT CREATION
-    # =========================================================
+    # =====================================================
+    # START AND RESTART
+    # =====================================================
 
-    def create_maze(
+    def start_game(
         self,
-        rows,
-        cols,
-        cell_size,
-        start_x,
-        start_y,
+        difficulty,
     ):
-        """Create Maze using its confirmed constructor."""
-
-        return Maze(
-            rows=rows,
-            cols=cols,
-            cell_size=cell_size,
-            start_x=start_x,
-            start_y=start_y,
-        )
-
-    def create_player(
-        self,
-        start_row,
-        start_col,
-    ):
-        """
-        Create Player using the actual constructor.
-
-        The current Player class expects:
-        Player(maze, start_row, start_col)
-        """
-        return Player(
-            self.maze,
-            start_row,
-            start_col,
-        )
-
-    def create_battery_manager(
-        self,
-        battery_count,
-        battery_restore,
-    ):
-        """Create BatteryManager according to its parameters."""
-        return BatteryManager(
-            self.maze,
-            battery_count,
-            battery_restore,
-        )
-
-    # =========================================================
-    # START, RESTART AND MENU
-    # =========================================================
-
-    def start_game(self, difficulty):
-        """Create and start a new maze."""
-
         if difficulty not in DIFFICULTY_SETTINGS:
             difficulty = "Easy"
 
         self.selected_difficulty = difficulty
+
         self.difficulty_config = (
             DIFFICULTY_SETTINGS[difficulty]
         )
 
         rows = int(
-            self.get_setting("rows", 17)
+            self.get_setting(
+                "rows",
+                17,
+            )
         )
 
         cols = int(
-            self.get_setting("cols", rows)
+            self.get_setting(
+                "cols",
+                rows,
+            )
         )
 
         battery_count = int(
@@ -343,9 +321,37 @@ class InvisibleMazeGame:
             )
         )
 
-        # =====================================================
-        # MAZE SIZE AND POSITION
-        # =====================================================
+        monster_move_interval = float(
+            self.get_setting(
+                "monster_move_interval",
+                {
+                    "Easy": 1.20,
+                    "Medium": 0.85,
+                    "Hard": 0.60,
+                }.get(
+                    difficulty,
+                    1.0,
+                ),
+            )
+        )
+
+        monster_damage = float(
+            self.get_setting(
+                "monster_damage",
+                {
+                    "Easy": 10,
+                    "Medium": 15,
+                    "Hard": 20,
+                }.get(
+                    difficulty,
+                    15,
+                ),
+            )
+        )
+
+        # =================================================
+        # CALCULATE MAZE SIZE
+        # =================================================
 
         available_width = (
             SCREEN_WIDTH
@@ -363,13 +369,22 @@ class InvisibleMazeGame:
             available_height // rows,
         )
 
-        cell_size = max(8, cell_size)
+        cell_size = max(
+            8,
+            cell_size,
+        )
 
-        maze_pixel_width = cols * cell_size
-        maze_pixel_height = rows * cell_size
+        maze_pixel_width = (
+            cols * cell_size
+        )
+
+        maze_pixel_height = (
+            rows * cell_size
+        )
 
         maze_start_x = (
-            SCREEN_WIDTH - maze_pixel_width
+            SCREEN_WIDTH
+            - maze_pixel_width
         ) // 2
 
         maze_start_y = (
@@ -377,41 +392,99 @@ class InvisibleMazeGame:
             + (
                 available_height
                 - maze_pixel_height
-            )
-            // 2
+            ) // 2
         )
 
-        # =====================================================
-        # CREATE GAME OBJECTS
-        # =====================================================
+        # =================================================
+        # CREATE MAZE
+        # =================================================
 
-        self.maze = self.create_maze(
-            rows,
-            cols,
-            cell_size,
-            maze_start_x,
-            maze_start_y,
+        self.maze = Maze(
+            rows=rows,
+            cols=cols,
+            cell_size=cell_size,
+            start_x=maze_start_x,
+            start_y=maze_start_y,
         )
 
         start_row, start_col = (
             self.get_start_position()
         )
 
-        self.player = self.create_player(
+        # =================================================
+        # CREATE PLAYER
+        # =================================================
+
+        self.player = Player(
+            self.maze,
             start_row,
             start_col,
         )
 
-        self.battery_manager = (
-            self.create_battery_manager(
-                battery_count,
-                battery_restore,
+        # =================================================
+        # CREATE MONSTER
+        # =================================================
+
+        monster_row, monster_col = (
+            self.find_monster_start_position(
+                start_row,
+                start_col,
             )
         )
 
-        # =====================================================
-        # RESET GAME VALUES
-        # =====================================================
+        self.shadow_monster = (
+            ShadowMonster(
+                maze=self.maze,
+                start_row=monster_row,
+                start_col=monster_col,
+                move_interval=(
+                    monster_move_interval
+                ),
+                damage=monster_damage,
+            )
+        )
+
+        # =================================================
+        # CREATE BATTERY MANAGER
+        # =================================================
+
+        try:
+            self.battery_manager = (
+                BatteryManager(
+                    maze=self.maze,
+                    pickup_count=battery_count,
+                    restore_amount=(
+                        battery_restore
+                    ),
+                )
+            )
+
+        except TypeError:
+            try:
+                self.battery_manager = (
+                    BatteryManager(
+                        self.maze,
+                        battery_count,
+                        battery_restore,
+                    )
+                )
+
+            except TypeError:
+                self.battery_manager = (
+                    BatteryManager(
+                        maze=self.maze,
+                        battery_count=(
+                            battery_count
+                        ),
+                        battery_restore=(
+                            battery_restore
+                        ),
+                    )
+                )
+
+        # =================================================
+        # RESET VALUES
+        # =================================================
 
         self.maximum_battery = 100.0
 
@@ -434,10 +507,18 @@ class InvisibleMazeGame:
         self.total_paused_time = 0.0
 
         self.exit_particle_timer = 0.0
+
         self.win_animation_started = False
-        self.zero_battery_message_shown = False
+
+        self.zero_battery_message_shown = (
+            False
+        )
 
         self.movement_cooldown = 0.0
+
+        self.monster_damage_cooldown = 0.0
+        self.monster_warning_shown = False
+        self.monster_hit_flash = 0.0
 
         if hasattr(
             self.particle_manager,
@@ -445,32 +526,19 @@ class InvisibleMazeGame:
         ):
             self.particle_manager.clear()
 
-        self.reset_hud_values()
-
-        self.game_state = GAME_STATE_PLAYING
-
-        self.show_notification(
-            f"{difficulty} maze started"
-        )
-
-    def reset_hud_values(self):
-        """Reset animated HUD values."""
-
         if hasattr(
             self.hud,
             "displayed_battery",
         ):
-            animated_value = (
+            displayed_battery = (
                 self.hud.displayed_battery
             )
 
-            if hasattr(animated_value, "snap"):
-                animated_value.snap(
-                    self.battery_percentage
-                )
-
-            elif hasattr(animated_value, "value"):
-                animated_value.value = (
+            if hasattr(
+                displayed_battery,
+                "snap",
+            ):
+                displayed_battery.snap(
                     self.battery_percentage
                 )
 
@@ -478,31 +546,118 @@ class InvisibleMazeGame:
             self.hud,
             "displayed_score",
         ):
-            animated_value = (
+            displayed_score = (
                 self.hud.displayed_score
             )
 
-            if hasattr(animated_value, "snap"):
-                animated_value.snap(0)
+            if hasattr(
+                displayed_score,
+                "snap",
+            ):
+                displayed_score.snap(0)
 
-            elif hasattr(animated_value, "value"):
-                animated_value.value = 0
+        self.game_state = GAME_STATE_PLAYING
+
+        if hasattr(
+            self.hud,
+            "show_notification",
+        ):
+            self.hud.show_notification(
+                f"{difficulty} maze started"
+            )
+
+    def find_monster_start_position(
+        self,
+        player_row,
+        player_col,
+    ):
+        exit_row, exit_col = (
+            self.get_exit_position()
+        )
+
+        possible_positions = []
+
+        for row in range(
+            1,
+            self.maze.rows - 1,
+        ):
+            for col in range(
+                1,
+                self.maze.cols - 1,
+            ):
+                if not self.maze_is_path(
+                    row,
+                    col,
+                ):
+                    continue
+
+                if (
+                    row == player_row
+                    and col == player_col
+                ):
+                    continue
+
+                distance_from_player = (
+                    abs(row - player_row)
+                    + abs(col - player_col)
+                )
+
+                distance_from_exit = (
+                    abs(row - exit_row)
+                    + abs(col - exit_col)
+                )
+
+                if (
+                    distance_from_player >= 8
+                    and distance_from_exit >= 3
+                ):
+                    possible_positions.append(
+                        (
+                            distance_from_player,
+                            row,
+                            col,
+                        )
+                    )
+
+        if possible_positions:
+            maximum_distance = max(
+                item[0]
+                for item in possible_positions
+            )
+
+            far_positions = [
+                item
+                for item in possible_positions
+                if item[0]
+                >= maximum_distance - 4
+            ]
+
+            _, row, col = random.choice(
+                far_positions
+            )
+
+            return row, col
+
+        if self.maze_is_path(
+            exit_row,
+            exit_col,
+        ):
+            return exit_row, exit_col
+
+        return player_row, player_col
 
     def restart_game(self):
-        """Restart the current difficulty."""
-
         self.start_game(
             self.selected_difficulty
         )
 
     def open_main_menu(self):
-        """Return to the main menu."""
-
         self.game_state = GAME_STATE_MENU
 
         self.maze = None
         self.player = None
         self.battery_manager = None
+        self.shadow_monster = None
 
         if hasattr(
             self.particle_manager,
@@ -510,80 +665,23 @@ class InvisibleMazeGame:
         ):
             self.particle_manager.clear()
 
-    # =========================================================
-    # TRANSITIONS
-    # =========================================================
-
-    def transition_is_active(self):
-        """Check whether a transition is running."""
-
-        if hasattr(
-            self.transition_manager,
-            "is_active",
-        ):
-            return self.transition_manager.is_active()
-
-        if hasattr(
-            self.transition_manager,
-            "current_transition",
-        ):
-            return (
-                self.transition_manager
-                .current_transition
-                is not None
-            )
-
-        return False
-
-    def start_transition(
-        self,
-        callback,
-        transition_type="fade",
-    ):
-        """Start a screen transition safely."""
-
-        if (
-            transition_type == "circle"
-            and hasattr(
-                self.transition_manager,
-                "start_circle",
-            )
-        ):
-            self.transition_manager.start_circle(
-                callback=callback,
-                center=(
-                    SCREEN_WIDTH // 2,
-                    SCREEN_HEIGHT // 2,
-                ),
-            )
-
-            return
-
-        if hasattr(
-            self.transition_manager,
-            "start_fade",
-        ):
-            self.transition_manager.start_fade(
-                callback=callback
-            )
-
-            return
-
-        callback()
-
-    # =========================================================
-    # EVENTS
-    # =========================================================
+    # =====================================================
+    # EVENT HANDLING
+    # =====================================================
 
     def handle_events(self):
-        """Handle Pygame events."""
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
                 continue
 
-            if self.transition_is_active():
+            if (
+                hasattr(
+                    self.transition_manager,
+                    "is_active",
+                )
+                and self.transition_manager.is_active()
+            ):
                 continue
 
             if self.game_state == GAME_STATE_MENU:
@@ -601,12 +699,16 @@ class InvisibleMazeGame:
             ):
                 self.handle_pause_event(event)
 
-            elif self.game_state == GAME_STATE_WON:
+            elif (
+                self.game_state
+                == GAME_STATE_WON
+            ):
                 self.handle_result_event(event)
 
-    def handle_menu_event(self, event):
-        """Handle main-menu events."""
-
+    def handle_menu_event(
+        self,
+        event,
+    ):
         action = self.main_menu.handle_event(
             event
         )
@@ -614,7 +716,10 @@ class InvisibleMazeGame:
         if action is None:
             return
 
-        if isinstance(action, tuple):
+        if isinstance(
+            action,
+            tuple,
+        ):
             action_name = action[0]
 
             action_value = (
@@ -627,11 +732,7 @@ class InvisibleMazeGame:
             action_name = action
             action_value = None
 
-        normalized_action = str(
-            action_name
-        ).lower()
-
-        if normalized_action == "start":
+        if action_name == "start":
             difficulty = (
                 action_value
                 if action_value
@@ -644,42 +745,62 @@ class InvisibleMazeGame:
                 transition_type="circle",
             )
 
-        elif normalized_action in {
+        elif action_name in (
             "easy",
-            "medium",
-            "hard",
-        }:
-            difficulty = (
-                normalized_action.capitalize()
-            )
-
+            "Easy",
+        ):
             self.start_transition(
-                callback=lambda selected=difficulty:
-                self.start_game(selected),
+                callback=lambda:
+                self.start_game("Easy"),
                 transition_type="circle",
             )
 
-        elif normalized_action == "settings":
-            self.show_notification(
-                "Settings screen will be added later"
+        elif action_name in (
+            "medium",
+            "Medium",
+        ):
+            self.start_transition(
+                callback=lambda:
+                self.start_game("Medium"),
+                transition_type="circle",
             )
 
-        elif normalized_action in {
+        elif action_name in (
+            "hard",
+            "Hard",
+        ):
+            self.start_transition(
+                callback=lambda:
+                self.start_game("Hard"),
+                transition_type="circle",
+            )
+
+        elif action_name == "settings":
+            if hasattr(
+                self.hud,
+                "show_notification",
+            ):
+                self.hud.show_notification(
+                    "Settings screen will be added later"
+                )
+
+        elif action_name in (
             "quit",
             "exit",
-        }:
+        ):
             self.running = False
 
-    def handle_playing_event(self, event):
-        """Handle keyboard controls during gameplay."""
-
+    def handle_playing_event(
+        self,
+        event,
+    ):
         if event.type != pygame.KEYDOWN:
             return
 
-        if event.key in {
+        if event.key in (
             pygame.K_p,
             pygame.K_ESCAPE,
-        }:
+        ):
             self.pause_game()
             return
 
@@ -688,7 +809,6 @@ class InvisibleMazeGame:
                 callback=self.restart_game,
                 transition_type="fade",
             )
-
             return
 
         if event.key == pygame.K_m:
@@ -696,7 +816,6 @@ class InvisibleMazeGame:
                 callback=self.open_main_menu,
                 transition_type="fade",
             )
-
             return
 
         direction = self.get_direction_from_key(
@@ -704,18 +823,21 @@ class InvisibleMazeGame:
         )
 
         if direction is not None:
-            self.try_move_player(direction)
+            self.try_move_player(
+                direction
+            )
 
-    def handle_pause_event(self, event):
-        """Handle pause-screen events."""
-
+    def handle_pause_event(
+        self,
+        event,
+    ):
         if (
             event.type == pygame.KEYDOWN
             and event.key
-            in {
+            in (
                 pygame.K_p,
                 pygame.K_ESCAPE,
-            }
+            )
         ):
             self.resume_game()
             return
@@ -739,9 +861,10 @@ class InvisibleMazeGame:
                 transition_type="fade",
             )
 
-    def handle_result_event(self, event):
-        """Handle victory-screen events."""
-
+    def handle_result_event(
+        self,
+        event,
+    ):
         action = self.result_screen.handle_event(
             event
         )
@@ -758,40 +881,64 @@ class InvisibleMazeGame:
                 transition_type="fade",
             )
 
-    @staticmethod
-    def get_direction_from_key(key):
-        """Convert arrow keys or WASD into movement."""
+    def start_transition(
+        self,
+        callback,
+        transition_type="fade",
+    ):
+        if transition_type == "circle":
+            if hasattr(
+                self.transition_manager,
+                "start_circle",
+            ):
+                self.transition_manager.start_circle(
+                    callback=callback,
+                    center=(
+                        SCREEN_WIDTH // 2,
+                        SCREEN_HEIGHT // 2,
+                    ),
+                )
+                return
 
+        if hasattr(
+            self.transition_manager,
+            "start_fade",
+        ):
+            self.transition_manager.start_fade(
+                callback=callback
+            )
+
+        else:
+            callback()
+
+    def get_direction_from_key(
+        self,
+        key,
+    ):
         directions = {
             pygame.K_UP: (-1, 0),
             pygame.K_w: (-1, 0),
+
             pygame.K_DOWN: (1, 0),
             pygame.K_s: (1, 0),
+
             pygame.K_LEFT: (0, -1),
             pygame.K_a: (0, -1),
+
             pygame.K_RIGHT: (0, 1),
             pygame.K_d: (0, 1),
         }
 
         return directions.get(key)
 
-    # =========================================================
+    # =====================================================
     # PLAYER MOVEMENT
-    # =========================================================
+    # =====================================================
 
-    def maze_cell_is_path(self, row, col):
-        """Check whether the target cell is walkable."""
-        if self.maze is None:
-            return False
-        return self.maze.is_path(row, col)
-
-    def move_player(self, row_change, col_change):
-        """Call Player.try_move using its actual parameters."""
-        return self.player.try_move(row_change, col_change)
-
-    def try_move_player(self, direction):
-        """Attempt to move the player one cell."""
-
+    def try_move_player(
+        self,
+        direction,
+    ):
         if (
             self.player is None
             or self.maze is None
@@ -810,99 +957,126 @@ class InvisibleMazeGame:
 
         row_change, col_change = direction
 
-        target_row = (
-            self.player.row + row_change
+        moved = self.player.try_move(
+            row_change,
+            col_change,
         )
 
-        target_col = (
-            self.player.col + col_change
-        )
-
-        if self.maze_cell_is_path(
-            target_row,
-            target_col,
-        ):
-            moved = self.move_player(
-                row_change,
-                col_change,
-            )
-
-            if moved is None:
-                moved = True
-
-            if not moved:
-                return
-
+        if moved:
             self.moves += 1
 
             self.movement_cooldown = (
                 self.movement_delay
             )
 
-            self.mark_player_cell_visited()
             self.check_battery_collection()
             self.check_win_condition()
 
         else:
-            self.handle_wall_collision(
-                direction
+            player_x, player_y = (
+                self.get_player_center()
             )
 
-    def mark_player_cell_visited(self):
-        """Mark the player's current maze cell as visited."""
+            if hasattr(
+                self.particle_manager,
+                "create_wall_hit_sparks",
+            ):
+                try:
+                    self.particle_manager.create_wall_hit_sparks(
+                        player_x,
+                        player_y,
+                        direction,
+                    )
 
-        if hasattr(self.maze, "mark_visited"):
-            self.maze.mark_visited(
-                self.player.row,
-                self.player.col,
+                except TypeError:
+                    self.particle_manager.create_wall_hit_sparks(
+                        player_x,
+                        player_y,
+                    )
+
+    def get_player_center(self):
+        if self.player is None:
+            return 0, 0
+
+        if hasattr(
+            self.player,
+            "get_center",
+        ):
+            return self.player.get_center()
+
+        if (
+            hasattr(self.player, "x")
+            and hasattr(self.player, "y")
+        ):
+            return (
+                int(self.player.x),
+                int(self.player.y),
             )
 
-        elif hasattr(self.maze, "visited_cells"):
-            self.maze.visited_cells.add(
-                (
+        return self.maze.get_cell_center(
+            self.player.row,
+            self.player.col,
+        )
+
+    # =====================================================
+    # BATTERY PICKUPS
+    # =====================================================
+
+    def check_battery_collection(self):
+        if self.battery_manager is None:
+            return
+
+        restored_amount = 0
+
+        if hasattr(
+            self.battery_manager,
+            "collect_at",
+        ):
+            restored_amount = (
+                self.battery_manager.collect_at(
                     self.player.row,
                     self.player.col,
                 )
             )
 
-    def handle_wall_collision(self, direction):
-        """Animate and show particles for a wall hit."""
-        if hasattr(self.player, "play_wall_hit_animation"):
-            self.player.play_wall_hit_animation()
+        elif hasattr(
+            self.battery_manager,
+            "collect",
+        ):
+            restored_amount = (
+                self.battery_manager.collect(
+                    self.player.row,
+                    self.player.col,
+                )
+            )
 
-        player_x, player_y = self.get_player_center()
-        self.particle_manager.create_wall_hit_sparks(
-            player_x,
-            player_y,
-            direction,
-        )
+        if restored_amount is None:
+            restored_amount = 0
 
-    # =========================================================
-    # BATTERY PICKUPS
-    # =========================================================
+        if isinstance(
+            restored_amount,
+            bool,
+        ):
+            if restored_amount:
+                restored_amount = (
+                    self.get_setting(
+                        "battery_restore",
+                        25,
+                    )
+                )
 
-    def collect_battery_at_player(self):
-        """Call the battery collection method."""
-        if self.battery_manager is None:
-            return 0
-        return self.battery_manager.collect_at(
-            self.player.row,
-            self.player.col,
-        )
-
-    def check_battery_collection(self):
-        """Restore energy when a battery is collected."""
-
-        restored_amount = (
-            self.collect_battery_at_player()
-        )
+            else:
+                restored_amount = 0
 
         try:
             restored_amount = float(
                 restored_amount
             )
 
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError,
+        ):
             restored_amount = 0
 
         if restored_amount <= 0:
@@ -924,7 +1098,7 @@ class InvisibleMazeGame:
         )
 
         center_x, center_y = (
-            self.get_cell_center(
+            self.maze.get_cell_center(
                 self.player.row,
                 self.player.col,
             )
@@ -939,23 +1113,19 @@ class InvisibleMazeGame:
                 center_y,
             )
 
-        self.show_notification(
-            f"Battery collected: +{actual_restored}%"
-        )
+        if hasattr(
+            self.hud,
+            "show_notification",
+        ):
+            self.hud.show_notification(
+                f"Battery collected: +{actual_restored}%"
+            )
 
-    def get_remaining_battery_count(self):
-        """Return the number of uncollected batteries."""
-        if self.battery_manager is None:
-            return 0
-        return self.battery_manager.get_remaining_count()
-
-    # =========================================================
-    # PAUSE
-    # =========================================================
+    # =====================================================
+    # PAUSE SYSTEM
+    # =====================================================
 
     def pause_game(self):
-        """Pause the game."""
-
         if (
             self.game_state
             != GAME_STATE_PLAYING
@@ -965,12 +1135,13 @@ class InvisibleMazeGame:
         self.game_state = GAME_STATE_PAUSED
         self.pause_start_time = time.time()
 
-        if hasattr(self.pause_screen, "open"):
+        if hasattr(
+            self.pause_screen,
+            "open",
+        ):
             self.pause_screen.open()
 
     def resume_game(self):
-        """Resume the game."""
-
         if (
             self.game_state
             != GAME_STATE_PAUSED
@@ -978,21 +1149,26 @@ class InvisibleMazeGame:
             return
 
         if self.pause_start_time > 0:
-            self.total_paused_time += (
+            paused_duration = (
                 time.time()
                 - self.pause_start_time
+            )
+
+            self.total_paused_time += (
+                paused_duration
             )
 
         self.pause_start_time = 0.0
         self.game_state = GAME_STATE_PLAYING
 
-    # =========================================================
+    # =====================================================
     # UPDATE
-    # =========================================================
+    # =====================================================
 
-    def update(self, delta_time):
-        """Update all active game systems."""
-
+    def update(
+        self,
+        delta_time,
+    ):
         if hasattr(
             self.transition_manager,
             "update",
@@ -1001,63 +1177,66 @@ class InvisibleMazeGame:
                 delta_time
             )
 
-        self.update_particles(delta_time)
+        if hasattr(
+            self.particle_manager,
+            "update",
+        ):
+            try:
+                self.particle_manager.update(
+                    delta_time,
+                    update_fireflies=True,
+                )
+
+            except TypeError:
+                self.particle_manager.update(
+                    delta_time
+                )
 
         if self.game_state == GAME_STATE_MENU:
-            self.update_menu(delta_time)
+            self.update_menu(
+                delta_time
+            )
 
         elif (
             self.game_state
             == GAME_STATE_PLAYING
         ):
-            self.update_playing(delta_time)
+            self.update_playing(
+                delta_time
+            )
 
         elif (
             self.game_state
             == GAME_STATE_PAUSED
         ):
-            self.update_paused(delta_time)
+            self.update_paused(
+                delta_time
+            )
 
-        elif self.game_state == GAME_STATE_WON:
-            self.update_won(delta_time)
+        elif (
+            self.game_state
+            == GAME_STATE_WON
+        ):
+            self.update_won(
+                delta_time
+            )
 
-    def update_particles(self, delta_time):
-        """Update the particle system."""
-
-        if not hasattr(
-            self.particle_manager,
+    def update_menu(
+        self,
+        delta_time,
+    ):
+        if hasattr(
+            self.main_menu,
             "update",
         ):
-            return
-
-        update_method = (
-            self.particle_manager.update
-        )
-
-        parameter_names = (
-            self.get_parameter_names(
-                update_method
-            )
-        )
-
-        if "update_fireflies" in parameter_names:
-            update_method(
-                delta_time,
-                update_fireflies=True,
+            self.main_menu.update(
+                delta_time
             )
 
-        else:
-            update_method(delta_time)
-
-    def update_menu(self, delta_time):
-        """Update menu animations."""
-
-        if hasattr(self.main_menu, "update"):
-            self.main_menu.update(delta_time)
-
-    def update_playing(self, delta_time):
-        """Update active gameplay."""
-
+    def update_playing(
+        self,
+        delta_time,
+    ):
         if (
             self.maze is None
             or self.player is None
@@ -1065,13 +1244,22 @@ class InvisibleMazeGame:
             return
 
         self.movement_cooldown = max(
-            0.0,
+            0,
             self.movement_cooldown
             - delta_time,
         )
 
-        if hasattr(self.player, "update"):
-            self.player.update(delta_time)
+        if hasattr(
+            self.player,
+            "update",
+        ):
+            self.player.update(
+                delta_time
+            )
+
+        self.update_shadow_monster(
+            delta_time
+        )
 
         if (
             self.battery_manager is not None
@@ -1087,8 +1275,13 @@ class InvisibleMazeGame:
         self.update_elapsed_time()
         self.update_battery(delta_time)
         self.update_score()
+
         self.update_exit_particles(
             delta_time
+        )
+
+        player_x, player_y = (
+            self.get_player_center()
         )
 
         if getattr(
@@ -1096,86 +1289,229 @@ class InvisibleMazeGame:
             "is_moving",
             False,
         ):
-            self.create_player_trail()
+            if hasattr(
+                self.particle_manager,
+                "create_player_trail",
+            ):
+                self.particle_manager.create_player_trail(
+                    player_x,
+                    player_y,
+                )
 
-        self.update_hud(delta_time)
+        if hasattr(
+            self.hud,
+            "update",
+        ):
+            try:
+                self.hud.update(
+                    delta_time=delta_time,
+                    battery=(
+                        self.battery_percentage
+                    ),
+                    score=self.score,
+                )
+
+            except TypeError:
+                self.hud.update(
+                    delta_time,
+                    self.battery_percentage,
+                    self.score,
+                )
 
         if (
             self.battery_percentage <= 0
             and not
             self.zero_battery_message_shown
         ):
-            self.zero_battery_message_shown = True
+            self.battery_percentage = 0
 
-            self.show_notification(
-                "Your torch has completely faded"
+            self.zero_battery_message_shown = (
+                True
             )
 
-        elif self.battery_percentage > 0:
+            if hasattr(
+                self.hud,
+                "show_notification",
+            ):
+                self.hud.show_notification(
+                    "Your torch has completely faded"
+                )
+
+        if self.battery_percentage > 0:
             self.zero_battery_message_shown = (
                 False
             )
 
         self.check_win_condition()
 
-    def create_player_trail(self):
-        """Create particles behind the moving player."""
-
-        if not hasattr(
-            self.particle_manager,
-            "create_player_trail",
+    def update_shadow_monster(
+        self,
+        delta_time,
+    ):
+        if (
+            self.shadow_monster is None
+            or self.player is None
         ):
             return
+
+        self.monster_damage_cooldown = max(
+            0.0,
+            self.monster_damage_cooldown
+            - delta_time,
+        )
+
+        self.monster_hit_flash = max(
+            0.0,
+            self.monster_hit_flash
+            - delta_time,
+        )
+
+        self.shadow_monster.update(
+            delta_time=delta_time,
+            player_row=self.player.row,
+            player_col=self.player.col,
+            battery_percentage=(
+                self.battery_percentage
+            ),
+        )
+
+        distance = (
+            self.shadow_monster
+            .distance_to_player(
+                self.player.row,
+                self.player.col,
+            )
+        )
+
+        if (
+            distance <= 4
+            and not self.monster_warning_shown
+        ):
+            self.monster_warning_shown = True
+
+            if hasattr(
+                self.hud,
+                "show_notification",
+            ):
+                self.hud.show_notification(
+                    "Something is following you..."
+                )
+
+        elif distance > 4:
+            self.monster_warning_shown = False
+
+        if (
+            self.shadow_monster
+            .is_touching_player(
+                self.player.row,
+                self.player.col,
+            )
+            and self.monster_damage_cooldown
+            <= 0
+        ):
+            self.damage_player_from_monster()
+
+    def damage_player_from_monster(self):
+        if self.shadow_monster is None:
+            return
+
+        damage = float(
+            self.shadow_monster.damage
+        )
+
+        self.battery_percentage = max(
+            0.0,
+            self.battery_percentage
+            - damage,
+        )
+
+        self.monster_damage_cooldown = (
+            self.monster_damage_delay
+        )
+
+        self.monster_hit_flash = 0.35
 
         player_x, player_y = (
             self.get_player_center()
         )
 
-        self.particle_manager.create_player_trail(
-            player_x,
-            player_y,
-        )
+        if hasattr(
+            self.particle_manager,
+            "create_wall_hit_sparks",
+        ):
+            try:
+                self.particle_manager.create_wall_hit_sparks(
+                    player_x,
+                    player_y,
+                    (0, 0),
+                )
 
-    def update_hud(self, delta_time):
-        """Update animated HUD values."""
-        if self.hud is not None:
-            self.hud.update(
-                delta_time,
-                self.battery_percentage,
-                self.score,
+            except TypeError:
+                try:
+                    self.particle_manager.create_wall_hit_sparks(
+                        player_x,
+                        player_y,
+                    )
+
+                except TypeError:
+                    pass
+
+        if hasattr(
+            self.hud,
+            "show_notification",
+        ):
+            self.hud.show_notification(
+                f"Shadow attack! -{int(damage)}% battery"
             )
 
-    def update_paused(self, delta_time):
-        """Update pause-screen animations."""
+    def update_paused(
+        self,
+        delta_time,
+    ):
+        if hasattr(
+            self.pause_screen,
+            "update",
+        ):
+            self.pause_screen.update(
+                delta_time
+            )
 
-        if hasattr(self.pause_screen, "update"):
-            self.pause_screen.update(delta_time)
-
-    def update_won(self, delta_time):
-        """Update result-screen animations."""
-
-        if hasattr(self.result_screen, "update"):
+    def update_won(
+        self,
+        delta_time,
+    ):
+        if hasattr(
+            self.result_screen,
+            "update",
+        ):
             self.result_screen.update(
                 delta_time
             )
 
-    def update_elapsed_time(self):
-        """Calculate active gameplay time."""
+    # =====================================================
+    # TIMER AND BATTERY
+    # =====================================================
 
+    def update_elapsed_time(self):
         if self.game_start_time <= 0:
-            self.elapsed_time = 0.0
+            self.elapsed_time = 0
             return
 
-        self.elapsed_time = max(
-            0.0,
+        self.elapsed_time = (
             time.time()
             - self.game_start_time
-            - self.total_paused_time,
+            - self.total_paused_time
         )
 
-    def update_battery(self, delta_time):
-        """Drain the torch battery."""
+        self.elapsed_time = max(
+            0,
+            self.elapsed_time,
+        )
 
+    def update_battery(
+        self,
+        delta_time,
+    ):
         drain_rate = float(
             self.get_setting(
                 "battery_drain",
@@ -1184,11 +1520,12 @@ class InvisibleMazeGame:
         )
 
         self.battery_percentage -= (
-            drain_rate * delta_time
+            drain_rate
+            * delta_time
         )
 
         self.battery_percentage = max(
-            0.0,
+            0,
             min(
                 self.maximum_battery,
                 self.battery_percentage,
@@ -1196,9 +1533,7 @@ class InvisibleMazeGame:
         )
 
     def get_visibility_radius(self):
-        """Calculate visibility from battery power."""
-
-        maximum_visibility = int(
+        base_radius = int(
             self.get_setting(
                 "visibility_radius",
                 self.get_setting(
@@ -1208,66 +1543,56 @@ class InvisibleMazeGame:
             )
         )
 
-        minimum_visibility = int(
+        minimum_radius = int(
             self.get_setting(
                 "minimum_visibility",
                 1,
             )
         )
 
-        if self.maximum_battery <= 0:
-            return minimum_visibility
-
         battery_ratio = (
             self.battery_percentage
             / self.maximum_battery
         )
 
-        dynamic_radius = round(
-            minimum_visibility
+        dynamic_radius = int(
+            minimum_radius
             + (
-                maximum_visibility
-                - minimum_visibility
+                base_radius
+                - minimum_radius
             )
             * battery_ratio
         )
 
         return max(
-            minimum_visibility,
-            min(
-                maximum_visibility,
-                dynamic_radius,
-            ),
+            minimum_radius,
+            dynamic_radius,
         )
 
-    # =========================================================
+    # =====================================================
     # SCORE
-    # =========================================================
+    # =====================================================
 
     def get_difficulty_multiplier(self):
-        """Return the difficulty score multiplier."""
-
-        return {
+        multipliers = {
             "Easy": 1.0,
             "Medium": 1.5,
             "Hard": 2.0,
-        }.get(
+        }
+
+        return multipliers.get(
             self.selected_difficulty,
             1.0,
         )
 
     def update_score(self):
-        """Update the live score."""
-
         multiplier = (
             self.get_difficulty_multiplier()
         )
 
-        score_bonus = float(
-            self.get_setting(
-                "score_bonus",
-                1000 * multiplier,
-            )
+        score_bonus = self.get_setting(
+            "score_bonus",
+            int(1000 * multiplier),
         )
 
         battery_bonus = (
@@ -1277,10 +1602,14 @@ class InvisibleMazeGame:
         )
 
         time_penalty = (
-            self.elapsed_time * 2
+            self.elapsed_time
+            * 2
         )
 
-        move_penalty = self.moves * 3
+        move_penalty = (
+            self.moves
+            * 3
+        )
 
         self.score = max(
             0,
@@ -1293,17 +1622,13 @@ class InvisibleMazeGame:
         )
 
     def calculate_final_score(self):
-        """Calculate score after reaching the exit."""
-
         multiplier = (
             self.get_difficulty_multiplier()
         )
 
-        completion_bonus = float(
-            self.get_setting(
-                "score_bonus",
-                1500 * multiplier,
-            )
+        completion_bonus = self.get_setting(
+            "score_bonus",
+            int(1500 * multiplier),
         )
 
         battery_bonus = (
@@ -1320,7 +1645,8 @@ class InvisibleMazeGame:
 
         efficiency_bonus = max(
             0,
-            800 - self.moves * 4,
+            800
+            - self.moves * 4,
         )
 
         return max(
@@ -1333,37 +1659,60 @@ class InvisibleMazeGame:
             ),
         )
 
-    # =========================================================
+    # =====================================================
     # EXIT AND WIN
-    # =========================================================
+    # =====================================================
 
     def update_exit_particles(
         self,
         delta_time,
     ):
-        """Create particles around the exit."""
         if self.maze is None:
             return
 
-        self.exit_particle_timer -= delta_time
+        self.exit_particle_timer -= (
+            delta_time
+        )
 
         if self.exit_particle_timer > 0:
             return
 
-        self.exit_particle_timer = self.exit_particle_interval
-
-        exit_row, exit_col = self.get_exit_position()
-        exit_x, exit_y = self.get_cell_center(exit_row, exit_col)
-
-        self.particle_manager.create_exit_particle(
-            exit_x,
-            exit_y,
-            radius=max(10, self.maze.cell_size // 2),
+        self.exit_particle_timer = (
+            self.exit_particle_interval
         )
 
-    def check_win_condition(self):
-        """Check whether the player reached the exit."""
+        exit_row, exit_col = (
+            self.get_exit_position()
+        )
 
+        exit_x, exit_y = (
+            self.maze.get_cell_center(
+                exit_row,
+                exit_col,
+            )
+        )
+
+        if hasattr(
+            self.particle_manager,
+            "create_exit_particle",
+        ):
+            try:
+                self.particle_manager.create_exit_particle(
+                    exit_x,
+                    exit_y,
+                    radius=max(
+                        10,
+                        self.maze.cell_size // 2,
+                    ),
+                )
+
+            except TypeError:
+                self.particle_manager.create_exit_particle(
+                    exit_x,
+                    exit_y,
+                )
+
+    def check_win_condition(self):
         if (
             self.game_state
             != GAME_STATE_PLAYING
@@ -1383,13 +1732,13 @@ class InvisibleMazeGame:
 
         if (
             player_position
-            == self.get_exit_position()
+            != self.get_exit_position()
         ):
-            self.complete_game()
+            return
+
+        self.complete_game()
 
     def complete_game(self):
-        """Finish the current maze."""
-
         if self.win_animation_started:
             return
 
@@ -1406,7 +1755,7 @@ class InvisibleMazeGame:
         )
 
         exit_x, exit_y = (
-            self.get_cell_center(
+            self.maze.get_cell_center(
                 exit_row,
                 exit_col,
             )
@@ -1421,28 +1770,79 @@ class InvisibleMazeGame:
                 exit_y,
             )
 
-        self.open_result_screen()
+        if hasattr(
+            self.result_screen,
+            "open",
+        ):
+            try:
+                self.result_screen.open(
+                    difficulty=(
+                        self.selected_difficulty
+                    ),
+                    moves=self.moves,
+                    elapsed_seconds=int(
+                        self.elapsed_time
+                    ),
+                    battery=(
+                        self.battery_percentage
+                    ),
+                    score=self.final_score,
+                )
+
+            except TypeError:
+                self.result_screen.open(
+                    self.selected_difficulty,
+                    self.moves,
+                    int(self.elapsed_time),
+                    self.battery_percentage,
+                    self.final_score,
+                )
+
         self.game_state = GAME_STATE_WON
 
-    def open_result_screen(self):
-        """Open the result screen with correct arguments."""
-        if self.result_screen is not None:
-            self.result_screen.open(
-                self.selected_difficulty,
-                self.moves,
-                int(self.elapsed_time),
-                self.battery_percentage,
-                self.final_score,
+    # =====================================================
+    # BATTERY INFORMATION
+    # =====================================================
+
+    def get_remaining_battery_count(self):
+        if self.battery_manager is None:
+            return 0
+
+        if hasattr(
+            self.battery_manager,
+            "get_remaining_count",
+        ):
+            return (
+                self.battery_manager
+                .get_remaining_count()
             )
 
-    # =========================================================
-    # DRAWING
-    # =========================================================
+        if hasattr(
+            self.battery_manager,
+            "batteries",
+        ):
+            return len(
+                self.battery_manager.batteries
+            )
+
+        if hasattr(
+            self.battery_manager,
+            "pickups",
+        ):
+            return len(
+                self.battery_manager.pickups
+            )
+
+        return 0
+
+    # =====================================================
+    # DRAW
+    # =====================================================
 
     def draw(self):
-        """Draw the active screen."""
-
-        self.screen.fill(BACKGROUND)
+        self.screen.fill(
+            BACKGROUND
+        )
 
         if self.game_state == GAME_STATE_MENU:
             self.draw_menu()
@@ -1458,9 +1858,15 @@ class InvisibleMazeGame:
             == GAME_STATE_PAUSED
         ):
             self.draw_gameplay()
-            self.pause_screen.draw(self.screen)
 
-        elif self.game_state == GAME_STATE_WON:
+            self.pause_screen.draw(
+                self.screen
+            )
+
+        elif (
+            self.game_state
+            == GAME_STATE_WON
+        ):
             self.draw_result()
 
         if hasattr(
@@ -1474,61 +1880,40 @@ class InvisibleMazeGame:
         pygame.display.flip()
 
     def draw_menu(self):
-        """Draw the main menu."""
-
-        self.main_menu.draw(self.screen)
+        self.main_menu.draw(
+            self.screen
+        )
 
     def draw_gameplay(self):
-        """Draw the maze and all gameplay objects."""
-
         if (
             self.maze is None
             or self.player is None
         ):
             return
 
-        self.screen.fill(BACKGROUND)
+        self.screen.fill(
+            BACKGROUND
+        )
 
         visibility_radius = (
             self.get_visibility_radius()
         )
 
-        self.draw_maze(visibility_radius)
-        self.draw_exit(visibility_radius)
+        self.draw_maze(
+            visibility_radius
+        )
+
+        self.draw_exit(
+            visibility_radius
+        )
+
         self.draw_batteries(
             visibility_radius
         )
-        self.draw_particles()
-        self.draw_player_torch(
+
+        self.draw_shadow_monster(
             visibility_radius
         )
-        self.draw_player(visibility_radius)
-        self.draw_hud()
-
-    def draw_maze(self, visibility_radius):
-        """Draw Maze using its actual parameters."""
-        self.maze.draw(
-            self.screen,
-            self.player.row,
-            self.player.col,
-            visibility_radius,
-        )
-
-    def draw_batteries(
-        self,
-        visibility_radius,
-    ):
-        """Draw battery pickups."""
-        if self.battery_manager is not None:
-            self.battery_manager.draw(
-                self.screen,
-                self.player.row,
-                self.player.col,
-                visibility_radius,
-            )
-
-    def draw_particles(self):
-        """Draw all particles."""
 
         if hasattr(
             self.particle_manager,
@@ -1546,81 +1931,222 @@ class InvisibleMazeGame:
                 self.screen
             )
 
-    def draw_player_torch(
-        self,
-        visibility_radius,
-    ):
-        """
-        Draw the torch glow.
-        """
-        if not hasattr(self.player, "draw_torch_glow"):
-            return
-
-        glow_radius = int(
-            self.maze.cell_size
-            * (
-                visibility_radius
-                + 0.75
+        if hasattr(
+            self.player,
+            "draw_torch_glow",
+        ):
+            glow_radius = int(
+                self.maze.cell_size
+                * (
+                    visibility_radius
+                    + 0.75
+                )
             )
-        )
 
-        glow_radius = max(
-            self.maze.cell_size,
-            glow_radius,
-        )
+            glow_radius = max(
+                self.maze.cell_size,
+                glow_radius,
+            )
 
-        self.player.draw_torch_glow(
-            self.screen,
-            glow_radius,
-            self.battery_percentage,
-        )
+            self.player.draw_torch_glow(
+                self.screen,
+                glow_radius,
+                self.battery_percentage,
+            )
 
-    def draw_player(self, visibility_radius):
-        """Draw the player."""
         self.player.draw(
             self.screen,
             visibility_radius,
             self.battery_percentage,
         )
 
-    def draw_hud(self):
-        """Draw current gameplay statistics."""
-        if self.hud is not None:
-            self.hud.draw(
-                self.screen,
-                self.selected_difficulty,
-                self.moves,
-                int(self.elapsed_time),
-                self.battery_percentage,
-                self.score,
-                self.get_remaining_battery_count(),
+        self.draw_monster_damage_flash()
+        self.draw_hud()
+
+    def draw_shadow_monster(
+        self,
+        visibility_radius,
+    ):
+        if self.shadow_monster is None:
+            return
+
+        self.shadow_monster.draw(
+            surface=self.screen,
+            player_row=self.player.row,
+            player_col=self.player.col,
+            visibility_radius=(
+                visibility_radius
+            ),
+        )
+
+    def draw_monster_damage_flash(self):
+        if self.monster_hit_flash <= 0:
+            return
+
+        maximum_flash_time = 0.35
+
+        flash_ratio = (
+            self.monster_hit_flash
+            / maximum_flash_time
+        )
+
+        alpha = int(
+            105 * flash_ratio
+        )
+
+        flash_surface = pygame.Surface(
+            (
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+            ),
+            pygame.SRCALPHA,
+        )
+
+        flash_surface.fill(
+            (
+                170,
+                0,
+                15,
+                alpha,
             )
+        )
+
+        self.screen.blit(
+            flash_surface,
+            (0, 0),
+        )
+
+    def draw_maze(
+        self,
+        visibility_radius,
+    ):
+        try:
+            self.maze.draw(
+                surface=self.screen,
+                player_row=self.player.row,
+                player_col=self.player.col,
+                visibility_radius=(
+                    visibility_radius
+                ),
+            )
+
+        except TypeError:
+            try:
+                self.maze.draw(
+                    self.screen,
+                    self.player.row,
+                    self.player.col,
+                    visibility_radius,
+                )
+
+            except TypeError:
+                self.maze.draw(
+                    self.screen
+                )
+
+    def draw_batteries(
+        self,
+        visibility_radius,
+    ):
+        if self.battery_manager is None:
+            return
+
+        if not hasattr(
+            self.battery_manager,
+            "draw",
+        ):
+            return
+
+        try:
+            self.battery_manager.draw(
+                surface=self.screen,
+                player_row=self.player.row,
+                player_col=self.player.col,
+                visibility_radius=(
+                    visibility_radius
+                ),
+            )
+
+        except TypeError:
+            try:
+                self.battery_manager.draw(
+                    self.screen,
+                    self.player.row,
+                    self.player.col,
+                    visibility_radius,
+                )
+
+            except TypeError:
+                self.battery_manager.draw(
+                    self.screen
+                )
+
+    def draw_hud(self):
+        remaining_batteries = (
+            self.get_remaining_battery_count()
+        )
+
+        try:
+            self.hud.draw(
+                surface=self.screen,
+                difficulty=(
+                    self.selected_difficulty
+                ),
+                moves=self.moves,
+                elapsed_seconds=int(
+                    self.elapsed_time
+                ),
+                battery=(
+                    self.battery_percentage
+                ),
+                score=self.score,
+                remaining_batteries=(
+                    remaining_batteries
+                ),
+            )
+
+        except TypeError:
+            try:
+                self.hud.draw(
+                    self.screen,
+                    self.selected_difficulty,
+                    self.moves,
+                    int(self.elapsed_time),
+                    self.battery_percentage,
+                    self.score,
+                    remaining_batteries,
+                )
+
+            except TypeError:
+                self.hud.draw(
+                    self.screen
+                )
 
     def draw_exit(
         self,
         visibility_radius,
     ):
-        """Draw the animated exit portal."""
-
         exit_row, exit_col = (
             self.get_exit_position()
         )
 
-        if not self.is_cell_visible(
+        is_visible = self.is_cell_visible(
             exit_row,
             exit_col,
             visibility_radius,
-        ):
+        )
+
+        if not is_visible:
             return
 
         center_x, center_y = (
-            self.get_cell_center(
+            self.maze.get_cell_center(
                 exit_row,
                 exit_col,
             )
         )
 
-        pulse = (
+        pulse_value = (
             math.sin(
                 pygame.time.get_ticks()
                 * 0.006
@@ -1628,27 +2154,24 @@ class InvisibleMazeGame:
             + 1
         ) / 2
 
-        outer_radius = max(
-            5,
-            int(
-                self.maze.cell_size
-                * (
-                    0.35
-                    + pulse * 0.08
-                )
-            ),
+        outer_radius = int(
+            self.maze.cell_size
+            * (
+                0.35
+                + pulse_value * 0.08
+            )
         )
 
         inner_radius = max(
-            3,
-            int(outer_radius * 0.55),
+            4,
+            int(
+                outer_radius
+                * 0.55
+            ),
         )
 
         glow_surface = pygame.Surface(
-            (
-                SCREEN_WIDTH,
-                SCREEN_HEIGHT,
-            ),
+            self.screen.get_size(),
             pygame.SRCALPHA,
         )
 
@@ -1660,7 +2183,10 @@ class InvisibleMazeGame:
                 GREEN_LIGHT[2],
                 28,
             ),
-            (center_x, center_y),
+            (
+                center_x,
+                center_y,
+            ),
             outer_radius + 16,
         )
 
@@ -1672,7 +2198,10 @@ class InvisibleMazeGame:
                 EXIT_COLOR[2],
                 55,
             ),
-            (center_x, center_y),
+            (
+                center_x,
+                center_y,
+            ),
             outer_radius + 7,
         )
 
@@ -1684,7 +2213,10 @@ class InvisibleMazeGame:
         pygame.draw.circle(
             self.screen,
             EXIT_COLOR,
-            (center_x, center_y),
+            (
+                center_x,
+                center_y,
+            ),
             outer_radius,
             width=max(
                 2,
@@ -1695,7 +2227,10 @@ class InvisibleMazeGame:
         pygame.draw.circle(
             self.screen,
             GREEN_LIGHT,
-            (center_x, center_y),
+            (
+                center_x,
+                center_y,
+            ),
             inner_radius,
         )
 
@@ -1705,29 +2240,42 @@ class InvisibleMazeGame:
         col,
         visibility_radius,
     ):
-        """Check whether a cell is visible."""
-        if self.maze is None or self.player is None:
-            return False
-        return self.maze.is_cell_visible(
-            row,
-            col,
-            self.player.row,
-            self.player.col,
-            visibility_radius,
+        if hasattr(
+            self.maze,
+            "is_cell_visible",
+        ):
+            try:
+                return self.maze.is_cell_visible(
+                    row,
+                    col,
+                    self.player.row,
+                    self.player.col,
+                    visibility_radius,
+                )
+
+            except TypeError:
+                pass
+
+        distance = (
+            abs(row - self.player.row)
+            + abs(col - self.player.col)
+        )
+
+        return (
+            distance
+            <= visibility_radius
         )
 
     def draw_result(self):
-        """Draw the victory screen."""
+        self.result_screen.draw(
+            self.screen
+        )
 
-        self.result_screen.draw(self.screen)
-
-    # =========================================================
+    # =====================================================
     # MAIN LOOP
-    # =========================================================
+    # =====================================================
 
     def run(self):
-        """Run the Pygame loop."""
-
         while self.running:
             delta_time = (
                 self.clock.tick(60)
@@ -1745,9 +2293,6 @@ class InvisibleMazeGame:
 
         self.close()
 
-    @staticmethod
-    def close():
-        """Close the game."""
-
+    def close(self):
         pygame.quit()
         sys.exit()

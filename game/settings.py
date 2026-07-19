@@ -134,6 +134,8 @@ DIFFICULTY_SETTINGS = {
         "battery_restore": 30,
         "score_bonus": 1000,
         "time_multiplier": 1.0,
+        "monster_move_interval": 1.20,
+        "monster_damage": 10,
     },
 
     "Medium": {
@@ -149,6 +151,8 @@ DIFFICULTY_SETTINGS = {
         "battery_restore": 25,
         "score_bonus": 1800,
         "time_multiplier": 1.4,
+        "monster_move_interval": 0.85,
+        "monster_damage": 15,
     },
 
     "Hard": {
@@ -164,6 +168,8 @@ DIFFICULTY_SETTINGS = {
         "battery_restore": 20,
         "score_bonus": 2800,
         "time_multiplier": 1.8,
+        "monster_move_interval": 0.60,
+        "monster_damage": 20,
     },
 }
 
