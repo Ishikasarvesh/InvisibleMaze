@@ -10,6 +10,7 @@ from game.enemy import ShadowMonster
 from game.maze import Maze
 from game.particles import ParticleManager
 from game.player import Player
+from game.powerups import PowerUpManager
 from game.settings import (
     BACKGROUND,
     DIFFICULTY_SETTINGS,
@@ -77,6 +78,7 @@ class InvisibleMazeGame:
         self.player = None
         self.battery_manager = None
         self.shadow_monster = None
+        self.powerup_manager = None
 
         # =================================================
         # SHARED SYSTEMS
@@ -119,6 +121,8 @@ class InvisibleMazeGame:
         self.moves = 0
         self.score = 0
         self.final_score = 0
+        self.screen_flash = 0.0
+        self.powerup_score_bonus = 0
 
         self.elapsed_time = 0.0
         self.game_start_time = 0.0
@@ -422,6 +426,15 @@ class InvisibleMazeGame:
         )
 
         # =================================================
+        # CREATE POWER-UP MANAGER
+        # =================================================
+        from game.powerups import PowerUpManager
+        self.powerup_manager = PowerUpManager(self.maze, self.fonts)
+        import game.player
+        self.powerup_manager.original_player_speed = float(game.player.PLAYER_MOVE_SPEED)
+        self.powerup_manager.spawn_powerups(self, int(self.get_setting("powerup_count", 3)))
+
+        # =================================================
         # CREATE MONSTER
         # =================================================
 
@@ -499,6 +512,8 @@ class InvisibleMazeGame:
         self.moves = 0
         self.score = 0
         self.final_score = 0
+        self.screen_flash = 0.0
+        self.powerup_score_bonus = 0
 
         self.elapsed_time = 0.0
         self.game_start_time = time.time()
@@ -654,10 +669,14 @@ class InvisibleMazeGame:
     def open_main_menu(self):
         self.game_state = GAME_STATE_MENU
 
+        if self.powerup_manager:
+            self.powerup_manager.reset_effects(self)
+
         self.maze = None
         self.player = None
         self.battery_manager = None
         self.shadow_monster = None
+        self.powerup_manager = None
 
         if hasattr(
             self.particle_manager,
@@ -1249,6 +1268,12 @@ class InvisibleMazeGame:
             - delta_time,
         )
 
+        self.screen_flash = max(0.0, self.screen_flash - delta_time)
+
+        if self.powerup_manager:
+            self.powerup_manager.update(delta_time, self)
+            self.powerup_manager.check_collisions(self)
+
         if hasattr(
             self.player,
             "update",
@@ -1352,6 +1377,9 @@ class InvisibleMazeGame:
             self.shadow_monster is None
             or self.player is None
         ):
+            return
+
+        if self.powerup_manager and self.powerup_manager.is_active("Freeze"):
             return
 
         self.monster_damage_cooldown = max(
@@ -1564,10 +1592,15 @@ class InvisibleMazeGame:
             * battery_ratio
         )
 
-        return max(
+        radius = max(
             minimum_radius,
             dynamic_radius,
         )
+
+        if self.powerup_manager and self.powerup_manager.is_active("Torch"):
+            radius += 3
+
+        return radius
 
     # =====================================================
     # SCORE
@@ -1618,6 +1651,7 @@ class InvisibleMazeGame:
                 + battery_bonus
                 - time_penalty
                 - move_penalty
+                + getattr(self, "powerup_score_bonus", 0)
             ),
         )
 
@@ -1911,6 +1945,9 @@ class InvisibleMazeGame:
             visibility_radius
         )
 
+        if self.powerup_manager:
+            self.powerup_manager.draw(self.screen)
+
         self.draw_shadow_monster(
             visibility_radius
         )
@@ -1948,18 +1985,33 @@ class InvisibleMazeGame:
                 glow_radius,
             )
 
+            battery_pct = self.battery_percentage
+            if self.powerup_manager and self.powerup_manager.is_active("Torch"):
+                battery_pct = max(100.0, battery_pct + 50.0)
+
             self.player.draw_torch_glow(
                 self.screen,
                 glow_radius,
+                battery_pct,
+            )
+
+        if self.powerup_manager and self.powerup_manager.is_active("Ghost"):
+            player_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            self.player.draw(
+                player_surface,
+                visibility_radius,
+                self.battery_percentage,
+            )
+            player_surface.set_alpha(140)
+            self.screen.blit(player_surface, (0, 0))
+        else:
+            self.player.draw(
+                self.screen,
+                visibility_radius,
                 self.battery_percentage,
             )
 
-        self.player.draw(
-            self.screen,
-            visibility_radius,
-            self.battery_percentage,
-        )
-
+        self.draw_screen_flash()
         self.draw_monster_damage_flash()
         self.draw_hud()
 
@@ -1977,6 +2029,36 @@ class InvisibleMazeGame:
             visibility_radius=(
                 visibility_radius
             ),
+        )
+
+    def draw_screen_flash(self):
+        if getattr(self, "screen_flash", 0.0) <= 0:
+            return
+
+        maximum_flash_time = 0.20
+        flash_ratio = self.screen_flash / maximum_flash_time
+        alpha = int(110 * flash_ratio)
+
+        flash_surface = pygame.Surface(
+            (
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+            ),
+            pygame.SRCALPHA,
+        )
+
+        flash_surface.fill(
+            (
+                255,
+                215,
+                0,
+                alpha,
+            )
+        )
+
+        self.screen.blit(
+            flash_surface,
+            (0, 0),
         )
 
     def draw_monster_damage_flash(self):
@@ -2102,6 +2184,11 @@ class InvisibleMazeGame:
                 score=self.score,
                 remaining_batteries=(
                     remaining_batteries
+                ),
+                active_powerups=(
+                    self.powerup_manager.active_powerups
+                    if self.powerup_manager
+                    else None
                 ),
             )
 

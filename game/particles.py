@@ -656,3 +656,57 @@ class ParticleManager:
         """
 
         self.particles.clear()
+
+    def create_sparkle(
+        self,
+        x,
+        y,
+    ):
+        """
+        Creates a small golden sparkle floating upwards.
+        """
+        particle = Particle(
+            x=x + random.uniform(-12, 12),
+            y=y + random.uniform(-12, 12),
+            velocity_x=random.uniform(-15, 15),
+            velocity_y=random.uniform(-30, -10),
+            lifetime=random.uniform(0.4, 0.8),
+            radius=random.uniform(1.2, 2.8),
+            color=random.choice([
+                (255, 215, 0), # Gold
+                (255, 223, 0), # Golden yellow
+                (255, 245, 180), # Soft light gold
+            ]),
+            gravity=-12,
+        )
+        self.particles.append(particle)
+
+    def create_powerup_burst(
+        self,
+        x,
+        y,
+        amount=30,
+    ):
+        """
+        Creates a star-explosion gold burst of particles.
+        """
+        colors = [
+            (255, 215, 0), # Gold
+            (255, 223, 0), # Golden yellow
+            (255, 245, 180),
+            (255, 255, 255), # White star sparkle
+        ]
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(50, 180)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.45, 1.1),
+                radius=random.uniform(2, 5),
+                color=random.choice(colors),
+                gravity=40,
+            )
+            self.particles.append(particle)

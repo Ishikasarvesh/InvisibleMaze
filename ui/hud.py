@@ -487,6 +487,42 @@ class HUD:
     # DRAW
     # =====================================================
 
+    def draw_active_powerups(self, surface, active_powerups):
+        import math
+        if not active_powerups:
+            return
+
+        text_parts = []
+        for k, v in active_powerups.items():
+            if v > 0:
+                icon = ""
+                if k == "Speed": icon = "⚡ Speed"
+                elif k == "Ghost": icon = "👻 Ghost"
+                elif k == "Torch": icon = "🔦 Torch"
+                elif k == "Freeze": icon = "❄️ Freeze"
+                else: icon = k
+                text_parts.append(f"{icon} {int(math.ceil(v))}s")
+
+        if not text_parts:
+            return
+
+        text_str = "    ".join(text_parts)
+        text_surface = self.fonts["small"].render(text_str, True, YELLOW)
+        text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, surface.get_height() - 50))
+
+        padding_x = 16
+        padding_y = 6
+        bg_rect = pygame.Rect(
+            text_rect.x - padding_x,
+            text_rect.y - padding_y,
+            text_rect.width + padding_x * 2,
+            text_rect.height + padding_y * 2
+        )
+        pygame.draw.rect(surface, PANEL, bg_rect, border_radius=10)
+        pygame.draw.rect(surface, PANEL_BORDER, bg_rect, width=1, border_radius=10)
+
+        surface.blit(text_surface, text_rect)
+
     def draw(
         self,
         surface,
@@ -496,8 +532,12 @@ class HUD:
         battery,
         score,
         remaining_batteries,
+        active_powerups=None,
     ):
         self.draw_panel(surface)
+
+        if active_powerups:
+            self.draw_active_powerups(surface, active_powerups)
 
         self.draw_info_item(
             surface,

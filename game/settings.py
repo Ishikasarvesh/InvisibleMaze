@@ -136,6 +136,7 @@ DIFFICULTY_SETTINGS = {
         "time_multiplier": 1.0,
         "monster_move_interval": 1.20,
         "monster_damage": 10,
+        "powerup_count": 5,
     },
 
     "Medium": {
@@ -153,6 +154,7 @@ DIFFICULTY_SETTINGS = {
         "time_multiplier": 1.4,
         "monster_move_interval": 0.85,
         "monster_damage": 15,
+        "powerup_count": 4,
     },
 
     "Hard": {
@@ -170,6 +172,7 @@ DIFFICULTY_SETTINGS = {
         "time_multiplier": 1.8,
         "monster_move_interval": 0.60,
         "monster_damage": 20,
+        "powerup_count": 3,
     },
 }
 
