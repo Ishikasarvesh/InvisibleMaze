@@ -328,14 +328,23 @@ class TrapManager:
                     continue
                 possible_positions.append((r, c))
 
+        if hasattr(game, "get_reachable_positions"):
+            reachable = game.get_reachable_positions(p_row, p_col)
+            possible_positions = [pos for pos in possible_positions if pos in reachable]
+
         if not possible_positions:
-            # Fallback to any path cell at least 6 away
-            for r in range(1, self.maze.rows - 1):
-                for c in range(1, self.maze.cols - 1):
-                    if not game.maze_is_path(r, c):
-                        continue
-                    if abs(r - p_row) + abs(c - p_col) >= 6:
-                        possible_positions.append((r, c))
+            # Fallback to any reachable path cell at least 6 away
+            if hasattr(game, "get_reachable_positions"):
+                reachable = game.get_reachable_positions(p_row, p_col)
+                for r in range(1, self.maze.rows - 1):
+                    for c in range(1, self.maze.cols - 1):
+                        if not game.maze_is_path(r, c):
+                            continue
+                        if abs(r - p_row) + abs(c - p_col) >= 6:
+                            if (r, c) in reachable:
+                                possible_positions.append((r, c))
+                if not possible_positions and reachable:
+                    possible_positions = list(reachable)
 
         if possible_positions:
             dest_row, dest_col = random.choice(possible_positions)

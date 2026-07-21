@@ -1,7 +1,7 @@
 import random
-
 import pygame
 
+import game.settings
 from game.settings import (
     HIDDEN_COLOR,
     PATH_COLOR,
@@ -14,114 +14,68 @@ from game.settings import (
 
 class Maze:
     """
-    Generates, stores and draws the maze.
-
-    Maze values:
-    1 = wall
-    0 = open path
+    Generates and stores the maze grid layout.
+    0 = Path
+    1 = Wall
     """
 
     def __init__(
         self,
-        rows,
-        cols,
-        cell_size,
-        start_x,
-        start_y,
+        rows=15,
+        cols=15,
+        cell_size=40,
+        start_x=0,
+        start_y=0,
+        **kwargs,
     ):
-        self.rows = rows
-        self.cols = cols
-
-        self.cell_size = cell_size
-
-        self.start_x = start_x
-        self.start_y = start_y
+        self.rows = self.ensure_odd(rows)
+        self.cols = self.ensure_odd(cols)
 
         self.grid = []
 
-        self.start_position = (1, 1)
-        self.exit_position = (
-            self.rows - 2,
-            self.cols - 2,
-        )
-
         self.visited_cells = set()
+        self.cell_size = cell_size
+        self.start_x = start_x
+        self.start_y = start_y
 
         self.generate()
+
+    # =====================================================
+    # GRID INITIALIZATION
+    # =====================================================
+
+    def ensure_odd(self, value):
+        """
+        Maze generation requires odd dimensions.
+        """
+        if value % 2 == 0:
+            return value + 1
+        return value
+
+    def create_empty_grid(self):
+        """
+        Creates a grid filled with walls.
+        """
+        self.grid = [
+            [1 for _ in range(self.cols)]
+            for _ in range(self.rows)
+        ]
 
     # =====================================================
     # MAZE GENERATION
     # =====================================================
 
-    def create_wall_grid(self):
-        """
-        Creates a two-dimensional list filled with walls.
-        """
-
-        return [
-            [1 for _ in range(self.cols)]
-            for _ in range(self.rows)
-        ]
-
-    def get_unvisited_neighbors(
-        self,
-        row,
-        col,
-    ):
-        """
-        Finds unvisited cells that are two spaces away.
-
-        We move two cells because the cell between them
-        acts as a removable wall.
-        """
-
-        directions = [
-            (-2, 0),  # Up
-            (2, 0),   # Down
-            (0, -2),  # Left
-            (0, 2),   # Right
-        ]
-
-        neighbors = []
-
-        for row_change, col_change in directions:
-            new_row = row + row_change
-            new_col = col + col_change
-
-            inside_maze = (
-                1 <= new_row < self.rows - 1
-                and 1 <= new_col < self.cols - 1
-            )
-
-            if not inside_maze:
-                continue
-
-            is_unvisited = (
-                self.grid[new_row][new_col] == 1
-            )
-
-            if is_unvisited:
-                neighbors.append(
-                    (new_row, new_col)
-                )
-
-        return neighbors
-
     def generate(self):
         """
-        Generates a random perfect maze using
-        recursive backtracking.
+        Generates a solvable maze using Depth-First Search.
         """
+        self.create_empty_grid()
+        self.visited_cells.clear()
 
-        self.grid = self.create_wall_grid()
-
-        start_row, start_col = self.start_position
-
+        start_row, start_col = 1, 1
         self.grid[start_row][start_col] = 0
 
-        stack = [
-            (start_row, start_col)
-        ]
+        stack = [(start_row, start_col)]
 
         while stack:
             current_row, current_col = stack[-1]
@@ -132,111 +86,126 @@ class Maze:
             )
 
             if neighbors:
-                next_row, next_col = random.choice(
+                next_row, next_col, wall_row, wall_col = random.choice(
                     neighbors
                 )
 
-                wall_row = (
-                    current_row + next_row
-                ) // 2
-
-                wall_col = (
-                    current_col + next_col
-                ) // 2
-
-                # Remove the wall between the cells.
                 self.grid[wall_row][wall_col] = 0
-
-                # Mark the next cell as an open path.
                 self.grid[next_row][next_col] = 0
 
-                stack.append(
-                    (next_row, next_col)
-                )
-
+                stack.append((next_row, next_col))
             else:
                 stack.pop()
 
-        exit_row, exit_col = self.exit_position
-
-        self.grid[exit_row][exit_col] = 0
-
-        self.visited_cells = {
-            self.start_position
-        }
-
-    # =====================================================
-    # CELL INFORMATION
-    # =====================================================
-
-    def is_inside(self, row, col):
+    def get_unvisited_neighbors(
+        self,
+        row,
+        col,
+    ):
         """
-        Checks whether a cell exists inside the maze.
+        Finds neighbor cells two steps away that are still walls.
         """
+        neighbors = []
 
+        directions = [
+            (-2, 0),
+            (2, 0),
+            (0, -2),
+            (0, 2),
+        ]
+
+        for row_change, col_change in directions:
+            target_row = row + row_change
+            target_col = col + col_change
+            wall_row = row + row_change // 2
+            wall_col = col + col_change // 2
+
+            if self.is_valid_cell(
+                target_row,
+                target_col,
+            ):
+                if self.grid[target_row][target_col] == 1:
+                    neighbors.append(
+                        (
+                            target_row,
+                            target_col,
+                            wall_row,
+                            wall_col,
+                        )
+                    )
+
+        return neighbors
+
+    def is_valid_cell(
+        self,
+        row,
+        col,
+    ):
+        """
+        Checks if a cell is inside the inner maze grid.
+        """
         return (
-            0 <= row < self.rows
-            and 0 <= col < self.cols
+            0 < row < self.rows - 1
+            and 0 < col < self.cols - 1
         )
 
-    def is_path(self, row, col):
-        """
-        Returns True if the given cell is an open path.
-        """
+    # =====================================================
+    # CELL TYPES AND RECTS
+    # =====================================================
 
-        if not self.is_inside(row, col):
-            return False
-
-        return self.grid[row][col] == 0
-
-    def is_wall(self, row, col):
-        """
-        Returns True if the given cell is a wall.
-        """
-
-        if not self.is_inside(row, col):
+    def is_wall(
+        self,
+        row,
+        col,
+    ):
+        if not (
+            0 <= row < self.rows
+            and 0 <= col < self.cols
+        ):
             return True
 
         return self.grid[row][col] == 1
 
-    def mark_visited(self, row, col):
-        """
-        Stores a cell as visited.
-        """
-
-        self.visited_cells.add(
-            (row, col)
-        )
-
-    def was_visited(self, row, col):
-        """
-        Checks whether the player visited a cell.
-        """
-
-        return (
+    def is_path(
+        self,
+        row,
+        col,
+    ):
+        return not self.is_wall(
             row,
             col,
-        ) in self.visited_cells
-
-    # =====================================================
-    # SCREEN POSITION HELPERS
-    # =====================================================
-
-    def get_cell_rect(self, row, col):
-        """
-        Converts a maze row and column into
-        a Pygame rectangle.
-        """
-
-        x = (
-            self.start_x
-            + col * self.cell_size
         )
 
-        y = (
-            self.start_y
-            + row * self.cell_size
+    def calculate_cell_size(
+        self,
+        available_width,
+        available_height,
+    ):
+        """
+        Calculates cell size to fit the window.
+        """
+        size_x = available_width // self.cols
+        size_y = available_height // self.rows
+
+        self.cell_size = max(
+            12,
+            min(size_x, size_y),
         )
+
+        return self.cell_size
+
+    def get_cell_rect(
+        self,
+        row,
+        col,
+    ):
+        """
+        Returns the pixel rectangle for a cell.
+        """
+        start_x = getattr(self, "start_x", 0)
+        start_y = getattr(self, "start_y", 0)
+        x = start_x + col * self.cell_size
+        y = start_y + row * self.cell_size
 
         return pygame.Rect(
             x,
@@ -245,21 +214,44 @@ class Maze:
             self.cell_size,
         )
 
-    def get_cell_center(self, row, col):
+    def get_cell_center(
+        self,
+        row,
+        col,
+    ):
         """
-        Returns the screen center of a maze cell.
+        Returns the center pixel position of a cell.
         """
-
-        rectangle = self.get_cell_rect(
+        rect = self.get_cell_rect(
             row,
             col,
         )
 
-        return rectangle.center
+        return (
+            rect.centerx,
+            rect.centery,
+        )
 
     # =====================================================
-    # VISIBILITY
+    # VISIBILITY & VISITED
     # =====================================================
+
+    def mark_visited(
+        self,
+        row,
+        col,
+    ):
+        """
+        Remembers cells the player has walked over.
+        """
+        self.visited_cells.add((row, col))
+
+    def was_visited(
+        self,
+        row,
+        col,
+    ):
+        return (row, col) in self.visited_cells
 
     def is_cell_visible(
         self,
@@ -270,29 +262,14 @@ class Maze:
         visibility_radius,
     ):
         """
-        Checks whether a cell is close enough to
-        the player to be visible.
-
-        Manhattan distance is used:
-        vertical distance + horizontal distance.
+        Checks if a cell is within visibility range.
         """
+        row_distance = abs(row - player_row)
+        col_distance = abs(col - player_col)
 
-        row_distance = abs(
-            row - player_row
-        )
+        distance = row_distance + col_distance
 
-        col_distance = abs(
-            col - player_col
-        )
-
-        total_distance = (
-            row_distance + col_distance
-        )
-
-        return (
-            total_distance
-            <= visibility_radius
-        )
+        return distance <= visibility_radius
 
     # =====================================================
     # DRAWING
@@ -308,48 +285,20 @@ class Maze:
         """
         Draws visible walls, paths and visited cells.
         """
+        debug_grid = getattr(game.settings, "DEBUG_DRAW_GRID", False)
 
         for row in range(self.rows):
             for col in range(self.cols):
-
-                cell_rect = self.get_cell_rect(
-                    row,
-                    col,
-                )
-
-                visible = self.is_cell_visible(
-                    row,
-                    col,
-                    player_row,
-                    player_col,
-                    visibility_radius,
-                )
-
-                visited = self.was_visited(
-                    row,
-                    col,
-                )
+                cell_rect = self.get_cell_rect(row, col)
+                visible = self.is_cell_visible(row, col, player_row, player_col, visibility_radius)
+                visited = self.was_visited(row, col)
 
                 if visible:
-                    self.draw_visible_cell(
-                        surface,
-                        row,
-                        col,
-                        cell_rect,
-                    )
-
+                    self.draw_visible_cell(surface, row, col, cell_rect, debug_grid)
                 elif visited:
-                    self.draw_visited_cell(
-                        surface,
-                        cell_rect,
-                    )
-
+                    self.draw_visited_cell(surface, cell_rect, debug_grid)
                 else:
-                    pygame.draw.rect(
-                        surface,
-                        HIDDEN_COLOR,
-                        cell_rect,
-                    )
+                    pygame.draw.rect(surface, (0, 0, 0), cell_rect)
 
     def draw_visible_cell(
         self,
@@ -357,34 +306,17 @@ class Maze:
         row,
         col,
         cell_rect,
+        debug_grid=False,
     ):
         """
-        Draws a visible wall or visible path.
+        Draws a visible wall or visible path without debug grid boxes.
         """
-
         if self.is_wall(row, col):
             pygame.draw.rect(
                 surface,
                 WALL_COLOR,
                 cell_rect,
             )
-
-            pygame.draw.line(
-                surface,
-                WALL_EDGE,
-                cell_rect.topleft,
-                cell_rect.topright,
-                width=1,
-            )
-
-            pygame.draw.line(
-                surface,
-                WALL_EDGE,
-                cell_rect.topleft,
-                cell_rect.bottomleft,
-                width=1,
-            )
-
         else:
             pygame.draw.rect(
                 surface,
@@ -392,6 +324,7 @@ class Maze:
                 cell_rect,
             )
 
+        if debug_grid:
             pygame.draw.rect(
                 surface,
                 PATH_EDGE,
@@ -403,20 +336,21 @@ class Maze:
         self,
         surface,
         cell_rect,
+        debug_grid=False,
     ):
         """
-        Draws a faint cell where the player has walked.
+        Draws a faint cell where the player has walked without debug grid boxes.
         """
-
         pygame.draw.rect(
             surface,
             VISITED_COLOR,
             cell_rect,
         )
 
-        pygame.draw.rect(
-            surface,
-            PATH_EDGE,
-            cell_rect,
-            width=1,
-        )
+        if debug_grid:
+            pygame.draw.rect(
+                surface,
+                PATH_EDGE,
+                cell_rect,
+                width=1,
+            )

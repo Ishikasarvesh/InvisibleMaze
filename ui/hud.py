@@ -141,6 +141,7 @@ class HUD:
             pulse_val = (math.sin(self.animation_time * 8.0) + 1.0) / 2.0
             border_color = (int(150 + pulse_val * 105), 30, 40)
 
+        # Draw Base Border
         pygame.draw.rect(
             surface,
             border_color,
@@ -148,6 +149,42 @@ class HUD:
             width=2 if alarm_active else 1,
             border_radius=18,
         )
+
+        # Theme specific decorations
+        theme_name = getattr(self, "theme_name", "Ninja World")
+        
+        if theme_name == "Ninja World":
+            # Ink-brush corners (drawn as small triangles and red moon/lantern badges)
+            pygame.draw.rect(surface, (245, 82, 95), (20, 14, 12, 12), border_radius=3)
+            pygame.draw.rect(surface, (245, 82, 95), (SCREEN_WIDTH - 32, 14, 12, 12), border_radius=3)
+            pygame.draw.rect(surface, (245, 82, 95), (20, HUD_HEIGHT - 20, 12, 12), border_radius=3)
+            pygame.draw.rect(surface, (245, 82, 95), (SCREEN_WIDTH - 32, HUD_HEIGHT - 20, 12, 12), border_radius=3)
+        elif theme_name == "Spring World":
+            # Leaf trims: green circles representing vines at corners
+            pygame.draw.circle(surface, (69, 230, 154), (20, 14), 6)
+            pygame.draw.circle(surface, (69, 230, 154), (SCREEN_WIDTH - 20, 14), 6)
+            pygame.draw.circle(surface, (69, 230, 154), (20, HUD_HEIGHT - 8), 6)
+            pygame.draw.circle(surface, (69, 230, 154), (SCREEN_WIDTH - 20, HUD_HEIGHT - 8), 6)
+        elif theme_name == "Frozen World":
+            # Icy frost triangles at corners
+            pygame.draw.polygon(surface, (140, 210, 255), [(20, 14), (32, 14), (20, 26)])
+            pygame.draw.polygon(surface, (140, 210, 255), [(SCREEN_WIDTH - 20, 14), (SCREEN_WIDTH - 32, 14), (SCREEN_WIDTH - 20, 26)])
+        elif theme_name == "Haunted World":
+            # Faded purple double borders
+            inner_rect = panel_rect.inflate(-6, -6)
+            pygame.draw.rect(surface, (100, 75, 125), inner_rect, width=1, border_radius=14)
+        elif theme_name == "Cyber World":
+            # Neon circuit node joints
+            pygame.draw.line(surface, (0, 245, 255), (10, 24), (20, 24), width=2)
+            pygame.draw.circle(surface, (0, 245, 255), (10, 24), 3)
+            pygame.draw.line(surface, (0, 245, 255), (SCREEN_WIDTH - 20, 24), (SCREEN_WIDTH - 10, 24), width=2)
+            pygame.draw.circle(surface, (0, 245, 255), (SCREEN_WIDTH - 10, 24), 3)
+        elif theme_name == "Desert Temple World":
+            # Sandstone golden brackets
+            pygame.draw.line(surface, (255, 210, 100), (20, 25), (35, 25), width=3)
+            pygame.draw.line(surface, (255, 210, 100), (25, 20), (25, 35), width=3)
+            pygame.draw.line(surface, (255, 210, 100), (SCREEN_WIDTH - 20, 25), (SCREEN_WIDTH - 35, 25), width=3)
+            pygame.draw.line(surface, (255, 210, 100), (SCREEN_WIDTH - 25, 20), (SCREEN_WIDTH - 25, 35), width=3)
 
         return panel_rect
 
@@ -559,6 +596,8 @@ class HUD:
         active_powerups=None,
         active_traps=None,
         remaining_traps=None,
+        inventory=None,
+        remaining_doors=None,
     ):
         alarm_active = False
         if active_traps and active_traps.get("ALARM", 0.0) > 0.0:
@@ -569,6 +608,7 @@ class HUD:
         if active_powerups or active_traps:
             self.draw_active_effects(surface, active_powerups, active_traps)
 
+        # 1. Mode
         self.draw_info_item(
             surface,
             45,
@@ -577,6 +617,36 @@ class HUD:
             BLUE,
         )
 
+        # 2. Keys (x=115) - Renders tiny colored dots and counts for owned keys
+        key_colors = {
+            "Red": (245, 82, 95),
+            "Blue": (89, 145, 255),
+            "Green": (69, 230, 154),
+            "Gold": (255, 215, 0),
+        }
+        
+        # Keys info label
+        label_surf = self.fonts["tiny"].render("KEYS", True, TEXT_MUTED)
+        surface.blit(label_surf, (115, 29))
+        
+        has_any_key = False
+        dot_x = 115
+        dot_y = 54
+        if inventory:
+            for color, count in inventory.items():
+                if count > 0:
+                    rgb = key_colors.get(color, WHITE)
+                    pygame.draw.circle(surface, rgb, (dot_x + 5, dot_y), 5)
+                    count_surf = self.fonts["tiny"].render(str(count), True, WHITE)
+                    surface.blit(count_surf, (dot_x + 13, dot_y - 6))
+                    dot_x += 28
+                    has_any_key = True
+                    
+        if not has_any_key:
+            none_surf = self.fonts["body"].render("0", True, TEXT_MUTED)
+            surface.blit(none_surf, (115, 46))
+
+        # 3. Moves
         self.draw_info_item(
             surface,
             185,
@@ -585,17 +655,19 @@ class HUD:
             WHITE,
         )
 
+        # 4. Time
         self.draw_info_item(
             surface,
-            300,
+            280,
             "Time",
             f"{elapsed_seconds}s",
             WHITE,
         )
 
+        # 5. Score
         self.draw_info_item(
             surface,
-            420,
+            380,
             "Score",
             str(
                 int(
@@ -605,21 +677,33 @@ class HUD:
             YELLOW,
         )
 
+        # 6. Batteries
         self.draw_info_item(
             surface,
-            565,
+            485,
             "Batteries",
             str(remaining_batteries),
             GREEN,
         )
 
+        # 7. Traps
         if remaining_traps is not None:
             self.draw_info_item(
                 surface,
-                640,
+                580,
                 "Traps",
                 str(remaining_traps),
                 RED,
+            )
+
+        # 8. Doors
+        if remaining_doors is not None:
+            self.draw_info_item(
+                surface,
+                640,
+                "Doors",
+                str(remaining_doors),
+                ORANGE,
             )
 
         leak_active = False

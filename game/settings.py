@@ -13,6 +13,16 @@ GAME_TITLE = "Invisible Maze"
 
 
 # =========================================================
+# DEBUG SETTINGS (OFF FOR NORMAL GAMEPLAY)
+# =========================================================
+
+DEBUG_DRAW_GRID = False
+DEBUG_DRAW_PATHS = False
+DEBUG_DRAW_COLLISION = False
+DEBUG_DRAW_OBJECT_CELLS = False
+
+
+# =========================================================
 # GAME STATES
 # =========================================================
 
@@ -54,14 +64,14 @@ YELLOW = (255, 213, 92)
 ORANGE = (255, 154, 70)
 RED = (245, 82, 95)
 
-WALL_COLOR = (63, 72, 100)
-WALL_EDGE = (94, 108, 145)
+WALL_COLOR = (45, 52, 75)
+WALL_EDGE = (70, 80, 110)
 
-PATH_COLOR = (22, 28, 43)
-PATH_EDGE = (35, 43, 64)
+PATH_COLOR = (12, 16, 26)
+PATH_EDGE = (25, 32, 48)
 
-HIDDEN_COLOR = (2, 3, 7)
-VISITED_COLOR = (29, 34, 49)
+HIDDEN_COLOR = (0, 0, 0)
+VISITED_COLOR = (18, 22, 34)
 
 PLAYER_COLOR = (255, 221, 116)
 PLAYER_HIGHLIGHT = (255, 249, 207)
@@ -98,102 +108,57 @@ DIFFICULTIES = {
         "battery_drain": 1.7,
         "maximum_visibility": 3,
         "minimum_visibility": 1,
-        "battery_pickups": 5,
+        "battery_pickups": 6,
         "battery_restore": 25,
-        "score_bonus": 1800,
-        "time_multiplier": 1.4,
+        "score_bonus": 2000,
+        "time_multiplier": 1.5,
     },
 
     "Hard": {
         "rows": 25,
         "cols": 25,
         "starting_battery": 80,
-        "battery_drain": 2.4,
-        "maximum_visibility": 3,
+        "battery_drain": 2.5,
+        "maximum_visibility": 2.5,
         "minimum_visibility": 1,
-        "battery_pickups": 4,
-        "battery_restore": 20,
-        "score_bonus": 2800,
-        "time_multiplier": 1.8,
-    },
-}
-
-
-# This dictionary uses the names expected by game/game.py.
-DIFFICULTY_SETTINGS = {
-    "Easy": {
-        "rows": 17,
-        "cols": 17,
-        "starting_battery": 100,
-        "battery_drain": 1.0,
-        "visibility_radius": 4,
-        "maximum_visibility": 4,
-        "minimum_visibility": 2,
-        "battery_count": 7,
-        "battery_pickups": 7,
-        "battery_restore": 30,
-        "score_bonus": 1000,
-        "time_multiplier": 1.0,
-        "monster_move_interval": 1.20,
-        "monster_damage": 10,
-        "powerup_count": 5,
-        "trap_count": 5,
-    },
-
-    "Medium": {
-        "rows": 21,
-        "cols": 21,
-        "starting_battery": 90,
-        "battery_drain": 1.7,
-        "visibility_radius": 3,
-        "maximum_visibility": 3,
-        "minimum_visibility": 1,
-        "battery_count": 5,
         "battery_pickups": 5,
-        "battery_restore": 25,
-        "score_bonus": 1800,
-        "time_multiplier": 1.4,
-        "monster_move_interval": 0.85,
-        "monster_damage": 15,
-        "powerup_count": 4,
-        "trap_count": 8,
+        "battery_restore": 20,
+        "score_bonus": 3500,
+        "time_multiplier": 2.2,
     },
 
-    "Hard": {
-        "rows": 25,
-        "cols": 25,
-        "starting_battery": 80,
-        "battery_drain": 2.4,
-        "visibility_radius": 3,
-        "maximum_visibility": 3,
-        "minimum_visibility": 1,
-        "battery_count": 4,
+    "Extreme": {
+        "rows": 29,
+        "cols": 29,
+        "starting_battery": 70,
+        "battery_drain": 3.4,
+        "maximum_visibility": 2,
+        "minimum_visibility": 0.8,
         "battery_pickups": 4,
-        "battery_restore": 20,
-        "score_bonus": 2800,
-        "time_multiplier": 1.8,
-        "monster_move_interval": 0.60,
-        "monster_damage": 20,
-        "powerup_count": 3,
-        "trap_count": 12,
+        "battery_restore": 15,
+        "score_bonus": 5000,
+        "time_multiplier": 3.0,
     },
 }
+DIFFICULTY_SETTINGS = DIFFICULTIES
+
+DEFAULT_DIFFICULTY = "Easy"
 
 
 # =========================================================
-# LAYOUT
+# HUD DIMENSIONS
 # =========================================================
 
-HUD_HEIGHT = 86
-BOTTOM_BAR_HEIGHT = 48
+HUD_HEIGHT = 80
+CARD_RADIUS = 12
 
-MAZE_TOP_MARGIN = 105
-MAZE_SIDE_MARGIN = 65
-MAZE_BOTTOM_MARGIN = 70
+MAZE_TOP_MARGIN = 20
+MAZE_BOTTOM_MARGIN = 20
+MAZE_SIDE_MARGIN = 20
 
 
 # =========================================================
-# ANIMATION SETTINGS
+# ANIMATION SPEEDS & CONTROLS
 # =========================================================
 
 BUTTON_HOVER_SPEED = 8

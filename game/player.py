@@ -1,5 +1,4 @@
 import math
-
 import pygame
 
 from game.animations import (
@@ -68,7 +67,6 @@ class Player:
         """
         Returns the player to a starting cell.
         """
-
         self.row = row
         self.col = col
 
@@ -99,7 +97,6 @@ class Player:
         """
         Returns the maze row and column.
         """
-
         return (
             self.row,
             self.col,
@@ -109,7 +106,6 @@ class Player:
         """
         Returns the animated screen position.
         """
-
         return (
             int(self.x),
             int(self.y),
@@ -130,7 +126,6 @@ class Player:
         Returns True when movement succeeds.
         Returns False when the player hits a wall.
         """
-
         if self.is_moving:
             return False
 
@@ -191,7 +186,6 @@ class Player:
         """
         Starts a small shake when the player hits a wall.
         """
-
         self.hit_animation.snap(1)
         self.hit_animation.set_target(0)
 
@@ -199,7 +193,6 @@ class Player:
         """
         Creates a brief movement in the attempted direction.
         """
-
         strength = self.hit_animation.value * 5
 
         row_direction, col_direction = (
@@ -227,7 +220,6 @@ class Player:
         """
         Updates movement and animations.
         """
-
         self.animation_time += delta_time
 
         self.hit_animation.update(
@@ -277,9 +269,9 @@ class Player:
         battery_percentage,
     ):
         """
-        Draws the player and torch glow.
+        Draws the player character cleanly.
+        Torch lighting is applied via TorchRenderer in game.py.
         """
-
         player_x, player_y = (
             self.get_screen_position()
         )
@@ -298,29 +290,8 @@ class Player:
             maximum=1.08,
         )
 
-        battery_strength = max(
-            0.2,
-            battery_percentage / 100,
-        )
-
-        glow_radius = int(
-            self.maze.cell_size
-            * (visibility_radius + 0.7)
-            * glow_pulse
-            * (
-                0.75
-                + battery_strength * 0.25
-            )
-        )
-
-        self.draw_torch_glow(
-            surface,
-            glow_radius,
-            battery_percentage,
-        )
-
         player_radius = max(
-            5,
+            6,
             int(
                 self.maze.cell_size
                 * 0.27
@@ -328,112 +299,51 @@ class Player:
             ),
         )
 
-        pygame.draw.circle(
-            surface,
-            PLAYER_COLOR,
-            (player_x, player_y),
-            player_radius,
-        )
-
-        highlight_radius = max(
-            2,
-            player_radius // 4,
-        )
-
-        pygame.draw.circle(
-            surface,
-            PLAYER_HIGHLIGHT,
-            (
-                player_x
-                - player_radius // 3,
-                player_y
-                - player_radius // 3,
-            ),
-            highlight_radius,
-        )
-
-        self.draw_player_face(
-            surface,
-            player_x,
-            player_y,
-            player_radius,
-        )
-
-    def draw_torch_glow(
-        self,
-        surface,
-        glow_radius,
-        battery_percentage,
-    ):
-        """
-        Draws transparent light circles around the player.
-        """
-        center_x, center_y = self.get_screen_position()
-        hit_offset_x, hit_offset_y = self.get_wall_hit_offset()
-        center_x += int(hit_offset_x)
-        center_y += int(hit_offset_y)
-
-        glow_surface = pygame.Surface(
-            surface.get_size(),
-            pygame.SRCALPHA,
-        )
-
-        battery_alpha = int(
-            max(
-                10,
-                35 * battery_percentage / 100,
+        skin_name = getattr(self, "skin_name", None)
+        if skin_name:
+            from game.player_customization import CustomizationManager
+            CustomizationManager.draw_player(
+                surface=surface,
+                cx=player_x,
+                cy=player_y,
+                radius=player_radius,
+                player=self,
+                skin_name=skin_name,
+                primary_color=getattr(self, "primary_color", PLAYER_COLOR),
+                secondary_color=getattr(self, "secondary_color", PLAYER_HIGHLIGHT),
+                accessory_name=getattr(self, "accessory_name", ""),
             )
-        )
+        else:
+            pygame.draw.circle(
+                surface,
+                PLAYER_COLOR,
+                (player_x, player_y),
+                player_radius,
+            )
 
-        pygame.draw.circle(
-            glow_surface,
-            (
-                255,
-                213,
-                100,
-                battery_alpha // 2,
-            ),
-            (center_x, center_y),
-            glow_radius,
-        )
+            highlight_radius = max(
+                2,
+                player_radius // 4,
+            )
 
-        pygame.draw.circle(
-            glow_surface,
-            (
-                255,
-                224,
-                130,
-                battery_alpha,
-            ),
-            (center_x, center_y),
-            max(
-                10,
-                glow_radius // 2,
-            ),
-        )
-
-        pygame.draw.circle(
-            glow_surface,
-            (
-                255,
-                239,
-                180,
-                min(
-                    80,
-                    battery_alpha * 2,
+            pygame.draw.circle(
+                surface,
+                PLAYER_HIGHLIGHT,
+                (
+                    player_x
+                    - player_radius // 3,
+                    player_y
+                    - player_radius // 3,
                 ),
-            ),
-            (center_x, center_y),
-            max(
-                6,
-                glow_radius // 4,
-            ),
-        )
+                highlight_radius,
+            )
 
-        surface.blit(
-            glow_surface,
-            (0, 0),
-        )
+            self.draw_player_face(
+                surface,
+                player_x,
+                player_y,
+                player_radius,
+            )
 
     def draw_player_face(
         self,
@@ -443,10 +353,8 @@ class Player:
         radius,
     ):
         """
-        Adds a small face to make the player
-        feel more alive and friendly.
+        Adds a small face to make the player feel alive.
         """
-
         if radius < 7:
             return
 
@@ -456,7 +364,6 @@ class Player:
         )
 
         eye_y = center_y - radius // 6
-
         eye_spacing = max(
             2,
             radius // 3,

@@ -41,70 +41,55 @@ class MainMenu:
         self.subtitle_alpha = AnimatedValue(0)
 
         self.card_progress = [
-            AnimatedValue(0),
-            AnimatedValue(0),
-            AnimatedValue(0),
+            AnimatedValue(0)
         ]
 
-        card_width = 260
-        card_height = 165
-        gap = 25
+        # Stack buttons vertically on the left
+        btn_x = 80
+        btn_w = 280
+        btn_h = 50
+        start_y = 150
+        gap = 62
 
-        total_width = (
-            card_width * 3
-            + gap * 2
+        self.continue_button = AnimatedButton(
+            btn_x, start_y, btn_w, btn_h,
+            "Continue", self.fonts["body"],
+            subtitle="Resume active progression"
         )
-
-        start_x = (
-            SCREEN_WIDTH - total_width
-        ) // 2
-
-        card_y = 350
-
-        self.easy_button = AnimatedButton(
-            start_x,
-            card_y,
-            card_width,
-            card_height,
-            "Easy",
-            self.fonts["subheading"],
-            subtitle="Large torch · More batteries",
+        self.select_world_button = AnimatedButton(
+            btn_x, start_y + gap, btn_w, btn_h,
+            "Select World", self.fonts["body"],
+            subtitle="Journey through 6 worlds"
         )
-
-        self.medium_button = AnimatedButton(
-            start_x + card_width + gap,
-            card_y,
-            card_width,
-            card_height,
-            "Medium",
-            self.fonts["subheading"],
-            subtitle="Balanced maze challenge",
+        self.customize_button = AnimatedButton(
+            btn_x, start_y + gap * 2, btn_w, btn_h,
+            "Customize Character", self.fonts["body"],
+            subtitle="Equip custom skins"
         )
-
-        self.hard_button = AnimatedButton(
-            start_x + (card_width + gap) * 2,
-            card_y,
-            card_width,
-            card_height,
-            "Hard",
-            self.fonts["subheading"],
-            subtitle="Low light · Fewer batteries",
+        self.settings_button = AnimatedButton(
+            btn_x, start_y + gap * 3, btn_w, btn_h,
+            "Settings", self.fonts["body"],
+            subtitle="Configure rules & sound"
+        )
+        self.how_to_play_button = AnimatedButton(
+            btn_x, start_y + gap * 4, btn_w, btn_h,
+            "How to Play", self.fonts["body"],
+            subtitle="Check game instructions"
+        )
+        self.quit_button = AnimatedButton(
+            btn_x, start_y + gap * 5, btn_w, btn_h,
+            "Quit Game", self.fonts["body"],
+            subtitle="Exit the application"
         )
 
         self.buttons = [
-            self.easy_button,
-            self.medium_button,
-            self.hard_button,
+            self.continue_button,
+            self.select_world_button,
+            self.customize_button,
+            self.settings_button,
+            self.how_to_play_button,
+            self.quit_button,
         ]
-
-        self.settings_button = AnimatedButton(
-            SCREEN_WIDTH // 2 - 100,
-            560,
-            200,
-            56,
-            "Settings",
-            self.fonts["body"],
-        )
 
         self.title_offset.set_target(0)
         self.title_alpha.set_target(1)
@@ -112,10 +97,8 @@ class MainMenu:
         self.subtitle_offset.set_target(0)
         self.subtitle_alpha.set_target(1)
 
-        for index, progress in enumerate(
-            self.card_progress
-        ):
-            progress.set_target(1)
+        self.save_data = None
+        self.selected_world_id = "1"
 
     # =====================================================
     # UPDATE
@@ -146,11 +129,11 @@ class MainMenu:
             speed=4,
         )
 
-        for progress in self.card_progress:
-            progress.update(
-                delta_time,
-                speed=5,
-            )
+        if self.save_data:
+            latest_unlocked = self.save_data.get("unlocked_levels", ["1-1"])[-1]
+            self.continue_button.subtitle = f"Resume Level {latest_unlocked}"
+        else:
+            self.continue_button.subtitle = "No active save progress"
 
         for button in self.buttons:
             button.update(
@@ -158,40 +141,47 @@ class MainMenu:
                 mouse_position,
             )
 
-        self.settings_button.update(
-            delta_time,
-            mouse_position,
-        )
-
     # =====================================================
     # EVENTS
     # =====================================================
 
     def handle_event(self, event):
-        if self.easy_button.handle_event(event):
-            return ("start", "Easy")
+        if self.continue_button.handle_event(event):
+            return ("continue", None)
 
-        if self.medium_button.handle_event(event):
-            return ("start", "Medium")
+        if self.select_world_button.handle_event(event):
+            return ("select_world", None)
 
-        if self.hard_button.handle_event(event):
-            return ("start", "Hard")
+        if self.customize_button.handle_event(event):
+            return ("customize", None)
 
         if self.settings_button.handle_event(event):
             return ("settings", None)
 
+        if self.how_to_play_button.handle_event(event):
+            return ("how_to_play", None)
+
+        if self.quit_button.handle_event(event):
+            return ("quit", None)
+
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_1:
-                return ("start", "Easy")
+            if event.key == pygame.K_c:
+                return ("continue", None)
 
-            if event.key == pygame.K_2:
-                return ("start", "Medium")
+            if event.key == pygame.K_w:
+                return ("select_world", None)
 
-            if event.key == pygame.K_3:
-                return ("start", "Hard")
+            if event.key == pygame.K_p:
+                return ("customize", None)
 
             if event.key == pygame.K_s:
                 return ("settings", None)
+
+            if event.key == pygame.K_h:
+                return ("how_to_play", None)
+
+            if event.key == pygame.K_q:
+                return ("quit", None)
 
         return None
 
@@ -344,7 +334,7 @@ class MainMenu:
         floating = floating_offset(
             self.animation_time,
             speed=1.7,
-            distance=6,
+            distance=5,
         )
 
         title_surface = self.fonts["title"].render(
@@ -364,7 +354,7 @@ class MainMenu:
             center=(
                 SCREEN_WIDTH // 2,
                 int(
-                    145
+                    65
                     + self.title_offset.value
                     + floating
                 ),
@@ -373,8 +363,8 @@ class MainMenu:
 
         glow_surface = pygame.Surface(
             (
-                title_rect.width + 70,
-                title_rect.height + 50,
+                title_rect.width + 60,
+                title_rect.height + 40,
             ),
             pygame.SRCALPHA,
         )
@@ -385,7 +375,7 @@ class MainMenu:
                 255,
                 216,
                 110,
-                28,
+                24,
             ),
             glow_surface.get_rect(),
         )
@@ -393,8 +383,8 @@ class MainMenu:
         surface.blit(
             glow_surface,
             (
-                title_rect.x - 35,
-                title_rect.y - 25,
+                title_rect.x - 30,
+                title_rect.y - 20,
             ),
         )
 
@@ -404,7 +394,7 @@ class MainMenu:
         )
 
         subtitle = (
-            "Find the exit before your torch fades."
+            "Explore 30 dangerous procedurally generated levels."
         )
 
         subtitle_surface = self.fonts[
@@ -427,7 +417,7 @@ class MainMenu:
                 center=(
                     SCREEN_WIDTH // 2,
                     int(
-                        235
+                        112
                         + self.subtitle_offset.value
                     ),
                 )
@@ -437,24 +427,6 @@ class MainMenu:
         surface.blit(
             subtitle_surface,
             subtitle_rect,
-        )
-
-        hint_surface = self.fonts[
-            "small"
-        ].render(
-            "Choose your difficulty",
-            True,
-            TEXT_MUTED,
-        )
-
-        surface.blit(
-            hint_surface,
-            hint_surface.get_rect(
-                center=(
-                    SCREEN_WIDTH // 2,
-                    290,
-                )
-            ),
         )
 
     # =====================================================
@@ -596,9 +568,6 @@ class MainMenu:
         )
 
     # =====================================================
-    # DRAW
-    # =====================================================
-
     def draw(self, surface):
         self.draw_background(surface)
 
@@ -611,8 +580,47 @@ class MainMenu:
         for button in self.buttons:
             button.draw(surface)
 
-        self.draw_difficulty_badges(surface)
+        # Draw Right Character Preview Area
+        px = 700
+        py = 370
+        preview_r = 50
 
-        self.settings_button.draw(surface)
+        # Draw outer circle frame
+        from game.settings import PANEL, PANEL_BORDER
+        pygame.draw.circle(surface, PANEL, (px, py), 160)
+        pygame.draw.circle(surface, PANEL_BORDER, (px, py), 160, width=4)
+
+        # Title
+        world_text = "WORLD PROGRESS"
+        world_surf = self.fonts["tiny"].render(world_text, True, TEXT_MUTED)
+        surface.blit(world_surf, world_surf.get_rect(center=(px, py - 110)))
+
+        # Selected Skin name
+        equipped_skin = "Shadow Ninja"
+        equipped_accessory = "Scarlet Scarf"
+        equipped_colors = ((0, 0, 0), (245, 82, 95))
+        
+        if self.save_data:
+            equipped_skin = self.save_data.get("selected_skin_by_world", {}).get(self.selected_world_id, "Shadow Ninja")
+            equipped_accessory = self.save_data.get("selected_accessories_by_world", {}).get(self.selected_world_id, "Scarlet Scarf")
+            equipped_colors = self.save_data.get("selected_colors_by_world", {}).get(self.selected_world_id, ((0, 0, 0), (245, 82, 95)))
+
+        skin_surf = self.fonts["subheading"].render(equipped_skin, True, WHITE)
+        surface.blit(skin_surf, skin_surf.get_rect(center=(px, py + 110)))
+
+        # Draw preview character programmatically doing an idle bounce
+        bounce = math.sin(self.animation_time * 5.0) * 4
+        from game.player_customization import CustomizationManager
+        CustomizationManager.draw_player(
+            surface=surface,
+            cx=px,
+            cy=py + int(bounce),
+            radius=preview_r,
+            player=None,
+            skin_name=equipped_skin,
+            primary_color=equipped_colors[0],
+            secondary_color=equipped_colors[1],
+            accessory_name=equipped_accessory,
+        )
 
         self.draw_footer(surface)

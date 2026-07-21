@@ -12,6 +12,7 @@ from game.particles import ParticleManager
 from game.player import Player
 from game.powerups import PowerUpManager
 from game.traps import TrapManager
+from game.doors import DoorManager
 from game.settings import (
     BACKGROUND,
     DIFFICULTY_SETTINGS,
@@ -33,6 +34,80 @@ from ui.menu import MainMenu
 from ui.pause_screen import PauseScreen
 from ui.result_screen import ResultScreen
 from ui.transitions import TransitionManager
+
+from game.save_manager import SaveManager
+from game.levels import LevelManager
+from game.themes import ThemeManager
+from ui.theme_select import WorldSelectScreen
+from ui.level_select import LevelSelectScreen
+from ui.customization_screen import CustomizationScreen
+
+GAME_STATE_WORLD_SELECT = 4
+GAME_STATE_LEVEL_SELECT = 5
+GAME_STATE_CUSTOMIZATION = 6
+
+
+class TorchRenderer:
+    """
+    Renders a smooth, cached darkness mask overlay with a soft circular torch cutout centered at (px, py).
+    Maintains 60 FPS performance via cached radial gradient surfaces.
+    """
+
+    def __init__(self):
+        self.cached_masks = {}
+
+    def get_torch_surface(self, radius):
+        r_key = int(max(10, radius))
+        if r_key in self.cached_masks:
+            return self.cached_masks[r_key]
+
+        surf = pygame.Surface((r_key * 2, r_key * 2), pygame.SRCALPHA)
+        surf.fill((0, 0, 0, 255))
+
+        steps = 35
+        for i in range(steps, -1, -1):
+            t = i / steps
+            r = int(r_key * t)
+            alpha = int(255 * (t ** 1.8))
+            pygame.draw.circle(surf, (0, 0, 0, alpha), (r_key, r_key), r)
+
+        self.cached_masks[r_key] = surf
+        return surf
+
+    def apply(self, surface, px, py, radius, theme_name="Ninja World"):
+        r_int = int(max(15, radius))
+        torch_surf = self.get_torch_surface(r_int)
+
+        darkness = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        darkness.fill((0, 0, 0, 255))
+
+        darkness.blit(
+            torch_surf,
+            (int(px - r_int), int(py - r_int)),
+            special_flags=pygame.BLEND_RGBA_MIN,
+        )
+
+        surface.blit(darkness, (0, 0))
+
+        # Add warm theme-specific ambient light glow inside torch
+        glow_colors = {
+            "Ninja World": (255, 160, 60, 22),
+            "Spring World": (180, 255, 200, 18),
+            "Frozen World": (160, 220, 255, 22),
+            "Haunted World": (180, 140, 255, 20),
+            "Cyber World": (0, 245, 255, 18),
+            "Desert Temple World": (255, 215, 90, 22),
+        }
+        accent = glow_colors.get(theme_name, (255, 215, 90, 20))
+        glow_surf = pygame.Surface((r_int * 2, r_int * 2), pygame.SRCALPHA)
+        pygame.draw.circle(glow_surf, accent, (r_int, r_int), int(r_int * 0.6))
+        pygame.draw.circle(
+            glow_surf,
+            (accent[0], accent[1], accent[2], accent[3] // 2),
+            (r_int, r_int),
+            int(r_int * 0.85),
+        )
+        surface.blit(glow_surf, (int(px - r_int), int(py - r_int)))
 
 
 class InvisibleMazeGame:
@@ -81,6 +156,7 @@ class InvisibleMazeGame:
         self.shadow_monster = None
         self.powerup_manager = None
         self.trap_manager = None
+        self.door_manager = None
 
         # =================================================
         # SHARED SYSTEMS
@@ -113,8 +189,41 @@ class InvisibleMazeGame:
             TransitionManager()
         )
 
+        self.torch_renderer = TorchRenderer()
+
+        # =================================================
+        # SAVE PROGRESS AND WORLD THEME
+        # =================================================
+
+        self.save_data = SaveManager.load()
+        self.selected_world_id = "1"
+        self.selected_level_id = "1-1"
+
+        self.main_menu.save_data = self.save_data
+        self.main_menu.selected_world_id = self.selected_world_id
+
+        self.selected_theme_name = self.save_data.get("selected_theme", "Ninja World")
+        ThemeManager.apply_theme(self.selected_theme_name)
+        self.hud.theme_name = self.selected_theme_name
+
+        self.world_select_screen = None
+        self.level_select_screen = None
+        self.customization_screen = None
+
+        # Special world mechanic variables
+        self.cyber_glitch_timer = 0.0
+        self.cyber_glitch_active = False
+        self.desert_sandstorm_timer = 0.0
+        self.desert_sandstorm_active = False
+        self.slippery_ice_tiles = set()
+        self.haunted_wall_tiles = set()
+        self.haunted_wall_timer = 0.0
+        self.lantern_positions = []
+        self.spring_flower_positions = []
+
         # =================================================
         # GAME VALUES
+        # =================================================
         # =================================================
 
         self.maximum_battery = 100.0
@@ -169,6 +278,13 @@ class InvisibleMazeGame:
         key,
         default_value,
     ):
+        level_id = getattr(self, "selected_level_id", None)
+        if level_id:
+            from game.levels import LevelManager
+            config = LevelManager.get_level(level_id)
+            if config and hasattr(config, key):
+                return getattr(config, key)
+
         if self.difficulty_config is None:
             return default_value
 
@@ -278,22 +394,63 @@ class InvisibleMazeGame:
 
         return False
 
+    def get_reachable_positions(self, start_row, start_col):
+        """
+        Calculates all path positions reachable from the current player position,
+        treating closed doors as walls.
+        """
+        queue = [(start_row, start_col)]
+        visited = {(start_row, start_col)}
+
+        while queue:
+            r, c = queue.pop(0)
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if nr < 0 or nr >= self.maze.rows or nc < 0 or nc >= self.maze.cols:
+                    continue
+                if (nr, nc) in visited:
+                    continue
+                if not self.maze_is_path(nr, nc):
+                    continue
+                if self.door_manager and self.door_manager.is_door_locked_at(nr, nc):
+                    continue
+                visited.add((nr, nc))
+                queue.append((nr, nc))
+
+        return visited
+
     # =====================================================
     # START AND RESTART
     # =====================================================
 
     def start_game(
         self,
-        difficulty,
+        level_id_or_diff,
     ):
-        if difficulty not in DIFFICULTY_SETTINGS:
+        if level_id_or_diff in ("Easy", "Medium", "Hard"):
+            level_map = {"Easy": "1-1", "Medium": "1-2", "Hard": "1-3"}
+            self.selected_level_id = level_map[level_id_or_diff]
+            difficulty = level_id_or_diff
+        else:
+            self.selected_level_id = level_id_or_diff
             difficulty = "Easy"
 
         self.selected_difficulty = difficulty
+        self.difficulty_config = DIFFICULTY_SETTINGS.get(difficulty)
 
-        self.difficulty_config = (
-            DIFFICULTY_SETTINGS[difficulty]
-        )
+        # Apply theme for selected world level
+        from game.levels import LevelManager
+        lvl_config = LevelManager.get_level(self.selected_level_id)
+        if lvl_config:
+            self.selected_world_id = lvl_config.world_id
+            world_config = LevelManager.get_world(self.selected_world_id)
+            if world_config:
+                self.selected_theme_name = world_config.theme_name
+                from game.themes import ThemeManager
+                ThemeManager.apply_theme(self.selected_theme_name)
+                self.hud.theme_name = self.selected_theme_name
+                self.save_data["selected_theme"] = self.selected_theme_name
+                SaveManager.save(self.save_data)
 
         rows = int(
             self.get_setting(
@@ -433,6 +590,15 @@ class InvisibleMazeGame:
             start_col,
         )
 
+        equipped_skin = self.save_data.get("selected_skin_by_world", {}).get(self.selected_world_id, "Shadow Ninja")
+        equipped_accessory = self.save_data.get("selected_accessories_by_world", {}).get(self.selected_world_id, "Scarlet Scarf")
+        equipped_colors = self.save_data.get("selected_colors_by_world", {}).get(self.selected_world_id, ((0, 0, 0), (245, 82, 95)))
+
+        self.player.skin_name = equipped_skin
+        self.player.accessory_name = equipped_accessory
+        self.player.primary_color = equipped_colors[0]
+        self.player.secondary_color = equipped_colors[1]
+
         # =================================================
         # CREATE POWER-UP MANAGER
         # =================================================
@@ -449,6 +615,13 @@ class InvisibleMazeGame:
         from game.traps import TrapManager
         self.trap_manager = TrapManager(self.maze)
         self.trap_manager.spawn_traps(self, int(self.get_setting("trap_count", 5)))
+
+        # =================================================
+        # CREATE DOOR MANAGER
+        # =================================================
+        from game.doors import DoorManager
+        self.door_manager = DoorManager(self.maze)
+        self.door_manager.spawn_doors_and_keys(self, int(self.get_setting("door_count", 1)))
 
         # =================================================
         # CREATE MONSTER
@@ -472,6 +645,8 @@ class InvisibleMazeGame:
                 damage=monster_damage,
             )
         )
+        if self.shadow_monster:
+            self.shadow_monster.game = self
 
         # =================================================
         # CREATE BATTERY MANAGER
@@ -593,6 +768,43 @@ class InvisibleMazeGame:
             ):
                 displayed_score.snap(0)
 
+        # Reset themed hazard variables
+        self.cyber_glitch_timer = 0.0
+        self.cyber_glitch_active = False
+        self.desert_sandstorm_timer = 0.0
+        self.desert_sandstorm_active = False
+        self.slippery_ice_tiles = set()
+        self.haunted_wall_tiles = set()
+        self.haunted_wall_timer = 0.0
+        self.lantern_positions = []
+        self.spring_flower_positions = []
+
+        if self.selected_theme_name == "Ninja World":
+            self.lantern_positions = [(3, 3), (self.maze.rows - 4, 3), (3, self.maze.cols - 4), (self.maze.rows - 4, self.maze.cols - 4)]
+            self.lantern_positions = [(r, c) for r, c in self.lantern_positions if self.maze_is_path(r, c)]
+            self.maze.lanterns = self.lantern_positions
+            
+        elif self.selected_theme_name == "Spring World":
+            candidates = []
+            for r in range(1, self.maze.rows-1):
+                for c in range(1, self.maze.cols-1):
+                    if self.maze_is_path(r, c) and (r, c) != (self.player.row, self.player.col) and (r, c) != self.get_exit_position():
+                        candidates.append((r, c))
+            random.shuffle(candidates)
+            self.spring_flower_positions = candidates[:5]
+            
+        elif self.selected_theme_name == "Frozen World":
+            for r in range(1, self.maze.rows-1):
+                for c in range(1, self.maze.cols-1):
+                    if self.maze_is_path(r, c) and random.random() < 0.15:
+                        self.slippery_ice_tiles.add((r, c))
+                        
+        elif self.selected_theme_name == "Haunted World":
+            for r in range(1, self.maze.rows-1):
+                for c in range(1, self.maze.cols-1):
+                    if self.maze.grid[r][c] == 1 and random.random() < 0.08:
+                        self.haunted_wall_tiles.add((r, c))
+
         self.game_state = GAME_STATE_PLAYING
 
         if hasattr(
@@ -700,6 +912,7 @@ class InvisibleMazeGame:
         self.shadow_monster = None
         self.powerup_manager = None
         self.trap_manager = None
+        self.door_manager = None
 
         if hasattr(
             self.particle_manager,
@@ -728,6 +941,15 @@ class InvisibleMazeGame:
 
             if self.game_state == GAME_STATE_MENU:
                 self.handle_menu_event(event)
+
+            elif self.game_state == GAME_STATE_WORLD_SELECT:
+                self.handle_world_select_event(event)
+
+            elif self.game_state == GAME_STATE_LEVEL_SELECT:
+                self.handle_level_select_event(event)
+
+            elif self.game_state == GAME_STATE_CUSTOMIZATION:
+                self.handle_customization_event(event)
 
             elif (
                 self.game_state
@@ -763,74 +985,99 @@ class InvisibleMazeGame:
             tuple,
         ):
             action_name = action[0]
-
-            action_value = (
-                action[1]
-                if len(action) > 1
-                else None
-            )
-
+            action_value = action[1] if len(action) > 1 else None
         else:
             action_name = action
             action_value = None
 
-        if action_name == "start":
-            difficulty = (
-                action_value
-                if action_value
-                else "Easy"
+        if action_name == "continue":
+            latest_unlocked = self.save_data.get("unlocked_levels", ["1-1"])[-1]
+            self.start_transition(
+                callback=lambda: self.start_game(latest_unlocked),
+                transition_type="theme",
             )
 
-            self.start_transition(
-                callback=lambda selected=difficulty:
-                self.start_game(selected),
-                transition_type="circle",
-            )
+        elif action_name == "select_world":
+            self.world_select_screen = WorldSelectScreen(self.fonts, self.save_data)
+            self.game_state = GAME_STATE_WORLD_SELECT
 
-        elif action_name in (
-            "easy",
-            "Easy",
-        ):
-            self.start_transition(
-                callback=lambda:
-                self.start_game("Easy"),
-                transition_type="circle",
-            )
-
-        elif action_name in (
-            "medium",
-            "Medium",
-        ):
-            self.start_transition(
-                callback=lambda:
-                self.start_game("Medium"),
-                transition_type="circle",
-            )
-
-        elif action_name in (
-            "hard",
-            "Hard",
-        ):
-            self.start_transition(
-                callback=lambda:
-                self.start_game("Hard"),
-                transition_type="circle",
-            )
+        elif action_name == "customize":
+            self.customization_screen = CustomizationScreen(self.fonts, self.save_data, self.selected_world_id)
+            self.game_state = GAME_STATE_CUSTOMIZATION
 
         elif action_name == "settings":
-            if hasattr(
-                self.hud,
-                "show_notification",
-            ):
-                self.hud.show_notification(
-                    "Settings screen will be added later"
-                )
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification("Config toggles saved locally.")
+
+        elif action_name == "how_to_play":
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification("Navigate with WASD/Arrows. Find the keys to unlock escape.")
 
         elif action_name in (
             "quit",
             "exit",
         ):
             self.running = False
+
+    def handle_world_select_event(self, event):
+        if not self.world_select_screen:
+            return
+        action = self.world_select_screen.handle_event(event)
+        if action is None:
+            return
+        
+        action_name, action_val = action
+        if action_name == "change_theme":
+            self.selected_theme_name = action_val
+            from game.themes import ThemeManager
+            ThemeManager.apply_theme(self.selected_theme_name)
+            self.hud.theme_name = self.selected_theme_name
+            self.save_data["selected_theme"] = self.selected_theme_name
+            SaveManager.save(self.save_data)
+        elif action_name == "select_world":
+            self.selected_world_id = str(action_val)
+            self.main_menu.selected_world_id = self.selected_world_id
+            self.level_select_screen = LevelSelectScreen(self.fonts, self.save_data, self.selected_world_id)
+            self.game_state = GAME_STATE_LEVEL_SELECT
+        elif action_name == "back":
+            self.game_state = GAME_STATE_MENU
+
+    def handle_level_select_event(self, event):
+        if not self.level_select_screen:
+            return
+        action = self.level_select_screen.handle_event(event)
+        if action is None:
+            return
+            
+        action_name, action_val = action
+        if action_name == "start_level":
+            self.start_transition(
+                callback=lambda: self.start_game(action_val),
+                transition_type="theme",
+            )
+        elif action_name == "back_to_worlds":
+            self.world_select_screen = WorldSelectScreen(self.fonts, self.save_data)
+            self.game_state = GAME_STATE_WORLD_SELECT
+
+    def handle_customization_event(self, event):
+        if not self.customization_screen:
+            return
+        action = self.customization_screen.handle_event(event)
+        if action is None:
+            return
+            
+        action_name, action_val = action
+        if action_name == "equipped":
+            SaveManager.save(self.save_data)
+            # Sync menu equipped skin
+            self.main_menu.save_data = self.save_data
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification("Character skin equipped!")
+        elif action_name == "error_lock":
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification(action_val)
+        elif action_name == "back":
+            self.game_state = GAME_STATE_MENU
 
     def handle_playing_event(
         self,
@@ -897,11 +1144,25 @@ class InvisibleMazeGame:
                 transition_type="fade",
             )
 
+        elif action == "world_map":
+            self.start_transition(
+                callback=self.open_world_map_from_pause,
+                transition_type="fade",
+            )
+
+        elif action == "settings":
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification("Sound settings auto-saved.")
+
         elif action == "menu":
             self.start_transition(
                 callback=self.open_main_menu,
                 transition_type="fade",
             )
+
+    def open_world_map_from_pause(self):
+        self.world_select_screen = WorldSelectScreen(self.fonts, self.save_data)
+        self.game_state = GAME_STATE_WORLD_SELECT
 
     def handle_result_event(
         self,
@@ -911,11 +1172,23 @@ class InvisibleMazeGame:
             event
         )
 
-        if action == "play_again":
+        if action == "next_level":
+            next_lvl = LevelManager.get_next_level_id(self.selected_level_id)
+            if next_lvl:
+                self.start_transition(
+                    callback=lambda: self.start_game(next_lvl),
+                    transition_type="theme",
+                )
+
+        elif action == "replay":
             self.start_transition(
                 callback=self.restart_game,
                 transition_type="fade",
             )
+
+        elif action == "level_select":
+            self.level_select_screen = LevelSelectScreen(self.fonts, self.save_data, self.selected_world_id)
+            self.game_state = GAME_STATE_LEVEL_SELECT
 
         elif action == "menu":
             self.start_transition(
@@ -939,6 +1212,17 @@ class InvisibleMazeGame:
                         SCREEN_WIDTH // 2,
                         SCREEN_HEIGHT // 2,
                     ),
+                )
+                return
+
+        if transition_type == "theme":
+            if hasattr(
+                self.transition_manager,
+                "start_theme",
+            ):
+                self.transition_manager.start_theme(
+                    callback=callback,
+                    theme_name=self.selected_theme_name
                 )
                 return
 
@@ -997,7 +1281,36 @@ class InvisibleMazeGame:
         ):
             return
 
+        # Cyber controls Glitch: reverse direction
+        if getattr(self, "cyber_glitch_active", False):
+            direction = (-direction[0], -direction[1])
+
         row_change, col_change = direction
+
+        new_row = self.player.row + row_change
+        new_col = self.player.col + col_change
+
+        # Block move if stepping into a locked door
+        if self.door_manager and self.door_manager.is_door_locked_at(new_row, new_col):
+            self.door_manager.try_unlock_door(new_row, new_col, self)
+            return
+
+        # Ice sliding (Frozen World)
+        if self.selected_theme_name == "Frozen World" and (new_row, new_col) in self.slippery_ice_tiles:
+            curr_r, curr_c = new_row, new_col
+            while True:
+                next_r = curr_r + row_change
+                next_c = curr_c + col_change
+                if self.maze_is_path(next_r, next_c):
+                    if self.door_manager and self.door_manager.is_door_locked_at(next_r, next_c):
+                        break
+                    curr_r, curr_c = next_r, next_c
+                    if (curr_r, curr_c) not in self.slippery_ice_tiles:
+                        break
+                else:
+                    break
+            row_change = curr_r - self.player.row
+            col_change = curr_c - self.player.col
 
         moved = self.player.try_move(
             row_change,
@@ -1010,6 +1323,16 @@ class InvisibleMazeGame:
             self.movement_cooldown = (
                 self.movement_delay
             )
+
+            # Spring Flower pick up check
+            if self.selected_theme_name == "Spring World":
+                pr, pc = self.player.row, self.player.col
+                if (pr, pc) in self.spring_flower_positions:
+                    self.spring_flower_positions.remove((pr, pc))
+                    self.battery_percentage = min(100.0, self.battery_percentage + 5.0)
+                    self.hud.show_notification("+5% Battery (Spring Flower!)")
+                    px, py = self.get_player_center()
+                    self.particle_manager.create_burst(px, py, (140, 245, 150))
 
             self.check_battery_collection()
             if self.powerup_manager:
@@ -1243,6 +1566,18 @@ class InvisibleMazeGame:
                 delta_time
             )
 
+        elif self.game_state == GAME_STATE_WORLD_SELECT:
+            if self.world_select_screen:
+                self.world_select_screen.update(delta_time)
+
+        elif self.game_state == GAME_STATE_LEVEL_SELECT:
+            if self.level_select_screen:
+                self.level_select_screen.update(delta_time)
+
+        elif self.game_state == GAME_STATE_CUSTOMIZATION:
+            if self.customization_screen:
+                self.customization_screen.update(delta_time)
+
         elif (
             self.game_state
             == GAME_STATE_PLAYING
@@ -1289,6 +1624,29 @@ class InvisibleMazeGame:
         ):
             return
 
+        # Haunted walls shifting
+        if self.selected_theme_name == "Haunted World":
+            self.haunted_wall_timer += delta_time
+            if self.haunted_wall_timer >= 4.0:
+                self.haunted_wall_timer = 0.0
+                for wr, wc in self.haunted_wall_tiles:
+                    self.maze.grid[wr][wc] = 1 - self.maze.grid[wr][wc]
+                self.hud.show_notification("Ghost walls shifted!")
+
+        # Cyber controls glitch
+        if self.selected_theme_name == "Cyber World":
+            self.cyber_glitch_timer += delta_time
+            if not self.cyber_glitch_active:
+                if self.cyber_glitch_timer >= 12.0:
+                    self.cyber_glitch_active = True
+                    self.cyber_glitch_timer = 0.0
+                    self.hud.show_notification("GLITCH: Controls Reversed!")
+            else:
+                if self.cyber_glitch_timer >= 3.0:
+                    self.cyber_glitch_active = False
+                    self.cyber_glitch_timer = 0.0
+                    self.hud.show_notification("Glitch resolved.")
+
         self.movement_cooldown = max(
             0,
             self.movement_cooldown
@@ -1322,6 +1680,9 @@ class InvisibleMazeGame:
 
         if self.trap_manager:
             self.trap_manager.update(delta_time, self)
+
+        if self.door_manager:
+            self.door_manager.update(delta_time, self)
 
         if hasattr(
             self.player,
@@ -1823,6 +2184,12 @@ class InvisibleMazeGame:
         ):
             return
 
+        # Check if all doors are unlocked
+        if self.door_manager and not self.door_manager.all_doors_unlocked():
+            if hasattr(self.hud, "show_notification"):
+                self.hud.show_notification("Escape Locked! Unlock all doors first.")
+            return
+
         self.complete_game()
 
     def complete_game(self):
@@ -1857,35 +2224,106 @@ class InvisibleMazeGame:
                 exit_y,
             )
 
-        if hasattr(
-            self.result_screen,
-            "open",
-        ):
-            try:
-                self.result_screen.open(
-                    difficulty=(
-                        self.selected_difficulty
-                    ),
-                    moves=self.moves,
-                    elapsed_seconds=int(
-                        self.elapsed_time
-                    ),
-                    battery=(
-                        self.battery_percentage
-                    ),
-                    score=self.final_score,
-                )
+        # Calculate score, stars, unlock next level & cosmetics
+        lvl_id = self.selected_level_id
+        lvl_config = LevelManager.get_level(lvl_id)
+        
+        stars = 1
+        if lvl_config:
+            time_ok = (self.elapsed_time <= lvl_config.time_target)
+            moves_ok = (self.moves <= lvl_config.move_target)
+            battery_ok = (self.battery_percentage >= 25.0)
+            
+            if time_ok and moves_ok and battery_ok:
+                stars = 3
+            elif time_ok or moves_ok:
+                stars = 2
 
-            except TypeError:
-                self.result_screen.open(
-                    self.selected_difficulty,
-                    self.moves,
-                    int(self.elapsed_time),
-                    self.battery_percentage,
-                    self.final_score,
-                )
+        # Save records in progress profile
+        prev_hi = self.save_data.get("highest_score", {}).get(lvl_id, 0)
+        new_record = False
+        if self.final_score > prev_hi:
+            self.save_data["highest_score"][lvl_id] = self.final_score
+            new_record = True
+            
+        prev_time = self.save_data.get("best_time", {}).get(lvl_id, 99999)
+        if self.elapsed_time < prev_time:
+            self.save_data["best_time"][lvl_id] = int(self.elapsed_time)
+            
+        prev_moves = self.save_data.get("best_moves", {}).get(lvl_id, 99999)
+        if self.moves < prev_moves:
+            self.save_data["best_moves"][lvl_id] = self.moves
 
+        prev_stars = self.save_data.get("stars_earned", {}).get(lvl_id, 0)
+        if stars > prev_stars:
+            self.save_data["stars_earned"][lvl_id] = stars
+
+        if lvl_id not in self.save_data.get("completed_levels", []):
+            self.save_data["completed_levels"].append(lvl_id)
+
+        # Unlock next level
+        next_lvl_id = LevelManager.get_next_level_id(lvl_id)
+        if next_lvl_id and next_lvl_id not in self.save_data.get("unlocked_levels", []):
+            self.save_data["unlocked_levels"].append(next_lvl_id)
+
+        # Cosmetic unlocks
+        unlocked_reward = None
+        if lvl_config and lvl_config.is_boss_level:
+            boss_rewards = {
+                "1": "Masked Kunoichi",
+                "2": "Nature Guardian",
+                "3": "Crystal Knight",
+                "4": "Victorian Explorer",
+                "5": "Robot Scout",
+                "6": "Temple Explorer",
+            }
+            reward = boss_rewards.get(lvl_config.world_id)
+            if reward and reward not in self.save_data.get("unlocked_skins", []):
+                self.save_data["unlocked_skins"].append(reward)
+                unlocked_reward = reward
+        else:
+            level_rewards = {
+                "1-2": "Crimson Ninja",
+                "1-3": "Blue Moon Ninja",
+                "1-4": "White Ronin",
+                "2-2": "Flower Mage",
+                "2-3": "Butterfly Knight",
+                "2-4": "Garden Fairy",
+                "3-2": "Snow Scout",
+                "3-3": "Frost Mage",
+                "3-4": "Arctic Explorer",
+                "4-2": "Little Witch",
+                "4-3": "Skeleton Hero",
+                "4-4": "Cursed Knight",
+                "5-2": "Neon Hacker",
+                "5-3": "Battle Android",
+                "5-4": "Glitch Runner",
+                "6-2": "Desert Guardian",
+                "6-3": "Pharaoh Warrior",
+                "6-4": "Sand Mage",
+            }
+            reward = level_rewards.get(lvl_id)
+            if reward and reward not in self.save_data.get("unlocked_skins", []):
+                self.save_data["unlocked_skins"].append(reward)
+                unlocked_reward = reward
+
+        # Persist save profile
+        SaveManager.save(self.save_data)
+
+        # Show result screen
         self.game_state = GAME_STATE_WON
+        self.result_screen.open(
+            difficulty=self.selected_difficulty,
+            moves=self.moves,
+            elapsed_seconds=int(self.elapsed_time),
+            battery=self.battery_percentage,
+            score=self.final_score,
+            level_id=lvl_id,
+            has_next_level=(next_lvl_id is not None),
+            stars_earned=stars,
+            new_record=new_record,
+            unlocked_rewards=unlocked_reward,
+        )
 
     # =====================================================
     # BATTERY INFORMATION
@@ -1934,6 +2372,18 @@ class InvisibleMazeGame:
         if self.game_state == GAME_STATE_MENU:
             self.draw_menu()
 
+        elif self.game_state == GAME_STATE_WORLD_SELECT:
+            if self.world_select_screen:
+                self.world_select_screen.draw(self.screen)
+
+        elif self.game_state == GAME_STATE_LEVEL_SELECT:
+            if self.level_select_screen:
+                self.level_select_screen.draw(self.screen)
+
+        elif self.game_state == GAME_STATE_CUSTOMIZATION:
+            if self.customization_screen:
+                self.customization_screen.draw(self.screen)
+
         elif (
             self.game_state
             == GAME_STATE_PLAYING
@@ -1978,18 +2428,19 @@ class InvisibleMazeGame:
         ):
             return
 
-        self.screen.fill(
-            BACKGROUND
-        )
+        # 1. Clear background to pitch black
+        self.screen.fill((0, 0, 0))
 
         visibility_radius = (
             self.get_visibility_radius()
         )
 
+        # 2. Draw maze world
         self.draw_maze(
             visibility_radius
         )
 
+        # 3. Draw exit & batteries
         self.draw_exit(
             visibility_radius
         )
@@ -1998,6 +2449,10 @@ class InvisibleMazeGame:
             visibility_radius
         )
 
+        # 4. Draw world theme elements
+        self.draw_world_theme_elements(visibility_radius)
+
+        # 5. Draw powerups, traps, doors
         if self.powerup_manager:
             self.powerup_manager.draw(self.screen)
 
@@ -2009,6 +2464,15 @@ class InvisibleMazeGame:
                 visibility_radius,
             )
 
+        if self.door_manager:
+            self.door_manager.draw(
+                self.screen,
+                visibility_radius,
+                self.player.row,
+                self.player.col,
+            )
+
+        # 6. Draw monster & particles
         self.draw_shadow_monster(
             visibility_radius
         )
@@ -2029,35 +2493,7 @@ class InvisibleMazeGame:
                 self.screen
             )
 
-        if hasattr(
-            self.player,
-            "draw_torch_glow",
-        ):
-            glow_radius = int(
-                self.maze.cell_size
-                * (
-                    visibility_radius
-                    + 0.75
-                )
-            )
-
-            glow_radius = max(
-                self.maze.cell_size,
-                glow_radius,
-            )
-
-            battery_pct = self.battery_percentage
-            if self.powerup_manager and self.powerup_manager.is_active("Torch"):
-                battery_pct = max(100.0, battery_pct + 50.0)
-            if getattr(self, "darkness_trap_timer", 0.0) > 0.0:
-                battery_pct = max(5.0, battery_pct * 0.40)
-
-            self.player.draw_torch_glow(
-                self.screen,
-                glow_radius,
-                battery_pct,
-            )
-
+        # 7. Draw player character
         if self.powerup_manager and self.powerup_manager.is_active("Ghost"):
             player_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
             self.player.draw(
@@ -2074,6 +2510,23 @@ class InvisibleMazeGame:
                 self.battery_percentage,
             )
 
+        # 8. Apply Darkness Mask / Torch Effect centered on player's smooth pixel position (player.x, player.y)
+        px, py = self.player.x, self.player.y
+        torch_r = self.maze.cell_size * (visibility_radius + 0.6)
+
+        # Low battery flickering
+        if self.battery_percentage < 20.0:
+            torch_r += random.uniform(-3.5, 3.5)
+
+        self.torch_renderer.apply(
+            self.screen,
+            px=px,
+            py=py,
+            radius=max(20.0, torch_r),
+            theme_name=self.selected_theme_name,
+        )
+
+        # 9. Draw trap / damage flashes
         if getattr(self, "slow_trap_timer", 0.0) > 0.0:
             self.draw_slow_trap_puddle()
 
@@ -2083,6 +2536,8 @@ class InvisibleMazeGame:
         self.draw_teleport_flash()
         self.draw_screen_flash()
         self.draw_monster_damage_flash()
+
+        # 10. Draw HUD last (bright & unmasked)
         self.draw_hud()
 
     def draw_shadow_monster(
@@ -2264,6 +2719,45 @@ class InvisibleMazeGame:
                     self.screen
                 )
 
+    def draw_world_theme_elements(self, visibility_radius):
+        if self.selected_theme_name == "Ninja World":
+            for lr, lc in self.lantern_positions:
+                if self.maze.is_cell_visible(lr, lc, self.player.row, self.player.col, visibility_radius) or self.maze.was_visited(lr, lc):
+                    cx, cy = self.maze.get_cell_center(lr, lc)
+                    pygame.draw.circle(self.screen, (255, 140, 0), (cx, cy), 10)
+                    pygame.draw.circle(self.screen, (255, 230, 110), (cx, cy), 10, width=2)
+                    glow = pygame.Surface((60, 60), pygame.SRCALPHA)
+                    pygame.draw.circle(glow, (255, 180, 50, 45), (30, 30), 30)
+                    self.screen.blit(glow, (cx - 30, cy - 30))
+
+        elif self.selected_theme_name == "Spring World":
+            for fr, fc in self.spring_flower_positions:
+                if self.maze.is_cell_visible(fr, fc, self.player.row, self.player.col, visibility_radius):
+                    cx, cy = self.maze.get_cell_center(fr, fc)
+                    pygame.draw.circle(self.screen, (255, 105, 180), (cx, cy), 8)
+                    for angle in range(0, 360, 72):
+                        rad = math.radians(angle)
+                        px = cx + int(math.cos(rad) * 9)
+                        py = cy + int(math.sin(rad) * 9)
+                        pygame.draw.circle(self.screen, (255, 182, 193), (px, py), 5)
+                    pygame.draw.circle(self.screen, (255, 215, 0), (cx, cy), 4)
+
+        elif self.selected_theme_name == "Frozen World":
+            for ir, ic in self.slippery_ice_tiles:
+                if self.maze.is_cell_visible(ir, ic, self.player.row, self.player.col, visibility_radius):
+                    rect = self.maze.get_cell_rect(ir, ic)
+                    ice_surf = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                    ice_surf.fill((140, 220, 255, 80))
+                    pygame.draw.line(ice_surf, (255, 255, 255, 150), (rect.width//2, 4), (rect.width//2, rect.height-4), 2)
+                    pygame.draw.line(ice_surf, (255, 255, 255, 150), (4, rect.height//2), (rect.width-4, rect.height//2), 2)
+                    self.screen.blit(ice_surf, rect.topleft)
+
+        if self.selected_theme_name == "Desert Temple World":
+            sand_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            opacity = int(12 + math.sin(time.time() * 2.0) * 6)
+            sand_surf.fill((210, 180, 140, opacity))
+            self.screen.blit(sand_surf, (0, 0))
+
     def draw_hud(self):
         remaining_batteries = (
             self.get_remaining_battery_count()
@@ -2300,6 +2794,16 @@ class InvisibleMazeGame:
                 remaining_traps=(
                     self.trap_manager.get_remaining_count()
                     if self.trap_manager
+                    else None
+                ),
+                inventory=(
+                    self.door_manager.inventory
+                    if self.door_manager
+                    else None
+                ),
+                remaining_doors=(
+                    self.door_manager.get_remaining_count()
+                    if self.door_manager
                     else None
                 ),
             )
@@ -2345,6 +2849,10 @@ class InvisibleMazeGame:
             )
         )
 
+        all_unlocked = True
+        if self.door_manager and not self.door_manager.all_doors_unlocked():
+            all_unlocked = False
+
         pulse_value = (
             math.sin(
                 pygame.time.get_ticks()
@@ -2353,85 +2861,130 @@ class InvisibleMazeGame:
             + 1
         ) / 2
 
-        outer_radius = int(
-            self.maze.cell_size
-            * (
-                0.35
-                + pulse_value * 0.08
+        if all_unlocked:
+            outer_radius = int(
+                self.maze.cell_size
+                * (
+                    0.40
+                    + pulse_value * 0.12
+                )
             )
-        )
 
-        inner_radius = max(
-            4,
-            int(
-                outer_radius
-                * 0.55
-            ),
-        )
+            inner_radius = max(
+                5,
+                int(
+                    outer_radius
+                    * 0.60
+                ),
+            )
 
-        glow_surface = pygame.Surface(
-            self.screen.get_size(),
-            pygame.SRCALPHA,
-        )
+            glow_surface = pygame.Surface(
+                self.screen.get_size(),
+                pygame.SRCALPHA,
+            )
 
-        pygame.draw.circle(
-            glow_surface,
-            (
-                GREEN_LIGHT[0],
-                GREEN_LIGHT[1],
-                GREEN_LIGHT[2],
-                28,
-            ),
-            (
-                center_x,
-                center_y,
-            ),
-            outer_radius + 16,
-        )
+            pygame.draw.circle(
+                glow_surface,
+                (
+                    GREEN_LIGHT[0],
+                    GREEN_LIGHT[1],
+                    GREEN_LIGHT[2],
+                    50,
+                ),
+                (
+                    center_x,
+                    center_y,
+                ),
+                outer_radius + 18,
+            )
 
-        pygame.draw.circle(
-            glow_surface,
-            (
-                EXIT_COLOR[0],
-                EXIT_COLOR[1],
-                EXIT_COLOR[2],
-                55,
-            ),
-            (
-                center_x,
-                center_y,
-            ),
-            outer_radius + 7,
-        )
+            pygame.draw.circle(
+                glow_surface,
+                (
+                    EXIT_COLOR[0],
+                    EXIT_COLOR[1],
+                    EXIT_COLOR[2],
+                    80,
+                ),
+                (
+                    center_x,
+                    center_y,
+                ),
+                outer_radius + 9,
+            )
 
-        self.screen.blit(
-            glow_surface,
-            (0, 0),
-        )
+            self.screen.blit(
+                glow_surface,
+                (0, 0),
+            )
 
-        pygame.draw.circle(
-            self.screen,
-            EXIT_COLOR,
-            (
-                center_x,
-                center_y,
-            ),
-            outer_radius,
-            width=max(
-                2,
-                self.maze.cell_size // 10,
-            ),
-        )
+            pygame.draw.circle(
+                self.screen,
+                EXIT_COLOR,
+                (
+                    center_x,
+                    center_y,
+                ),
+                outer_radius,
+                width=max(
+                    3,
+                    self.maze.cell_size // 8,
+                ),
+            )
 
-        pygame.draw.circle(
-            self.screen,
-            GREEN_LIGHT,
-            (
-                center_x,
-                center_y,
-            ),
-            inner_radius,
-        )
+            pygame.draw.circle(
+                self.screen,
+                GREEN_LIGHT,
+                (
+                    center_x,
+                    center_y,
+                ),
+                inner_radius,
+            )
+        else:
+            outer_radius = int(self.maze.cell_size * 0.22)
+            inner_radius = 4
+
+            glow_surface = pygame.Surface(
+                self.screen.get_size(),
+                pygame.SRCALPHA,
+            )
+
+            pygame.draw.circle(
+                glow_surface,
+                (45, 60, 50, 20),
+                (
+                    center_x,
+                    center_y,
+                ),
+                outer_radius + 6,
+            )
+
+            self.screen.blit(
+                glow_surface,
+                (0, 0),
+            )
+
+            pygame.draw.circle(
+                self.screen,
+                (70, 85, 75),
+                (
+                    center_x,
+                    center_y,
+                ),
+                outer_radius,
+                width=2,
+            )
+
+            pygame.draw.circle(
+                self.screen,
+                (45, 55, 50),
+                (
+                    center_x,
+                    center_y,
+                ),
+                inner_radius,
+            )
 
     def is_cell_visible(
         self,

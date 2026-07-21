@@ -51,64 +51,87 @@ class PauseScreen:
         )
 
         button_width = 300
-        button_height = 60
+        button_height = 46
         button_x = SCREEN_WIDTH // 2 - button_width // 2
+        start_y = self.panel_rect.y + 190
+        gap = 58
 
         self.continue_button = AnimatedButton(
             button_x,
-            self.panel_rect.y + 230,
+            start_y,
             button_width,
             button_height,
-            "Continue",
+            "Resume",
             self.fonts["body"],
-            subtitle="Return to the maze",
+            subtitle="",
         )
 
         self.restart_button = AnimatedButton(
             button_x,
-            self.panel_rect.y + 310,
+            start_y + gap,
             button_width,
             button_height,
             "Restart Level",
             self.fonts["body"],
-            subtitle="Generate a fresh maze",
+            subtitle="",
+        )
+
+        self.world_map_button = AnimatedButton(
+            button_x,
+            start_y + gap * 2,
+            button_width,
+            button_height,
+            "World Map",
+            self.fonts["body"],
+            subtitle="",
+        )
+
+        self.settings_button = AnimatedButton(
+            button_x,
+            start_y + gap * 3,
+            button_width,
+            button_height,
+            "Settings",
+            self.fonts["body"],
+            subtitle="",
         )
 
         self.menu_button = AnimatedButton(
             button_x,
-            self.panel_rect.y + 390,
+            start_y + gap * 4,
             button_width,
             button_height,
             "Main Menu",
             self.fonts["body"],
-            subtitle="Leave the current game",
+            subtitle="",
         )
 
         self.buttons = [
             self.continue_button,
             self.restart_button,
+            self.world_map_button,
+            self.settings_button,
             self.menu_button,
         ]
 
         self.open()
 
     # =====================================================
-    # OPEN AND RESET
+    # OPEN PAUSE SCREEN
     # =====================================================
 
     def open(self):
         """
-        Restarts the pause-screen entrance animation.
+        Starts panel transitions.
         """
-
         self.animation_time = 0
-
         self.overlay_alpha.snap(0)
-        self.panel_progress.snap(0)
-        self.title_progress.snap(0)
-
         self.overlay_alpha.set_target(185)
+
+        self.panel_progress.snap(0)
         self.panel_progress.set_target(1)
+
+        self.title_progress.snap(0)
         self.title_progress.set_target(1)
 
     # =====================================================
@@ -117,19 +140,18 @@ class PauseScreen:
 
     def update(self, delta_time):
         """
-        Updates the overlay, panel and button animations.
+        Updates animation elements.
         """
-
         self.animation_time += delta_time
-
-        self.overlay_alpha.update(
-            delta_time,
-            speed=6,
-        )
 
         self.panel_progress.update(
             delta_time,
             speed=7,
+        )
+
+        self.overlay_alpha.update(
+            delta_time,
+            speed=6,
         )
 
         self.title_progress.update(
@@ -152,18 +174,18 @@ class PauseScreen:
     def handle_event(self, event):
         """
         Handles mouse and keyboard input.
-
-        Possible return values:
-        "continue"
-        "restart"
-        "menu"
         """
-
         if self.continue_button.handle_event(event):
             return "continue"
 
         if self.restart_button.handle_event(event):
             return "restart"
+
+        if self.world_map_button.handle_event(event):
+            return "world_map"
+
+        if self.settings_button.handle_event(event):
+            return "settings"
 
         if self.menu_button.handle_event(event):
             return "menu"
@@ -177,6 +199,12 @@ class PauseScreen:
 
             if event.key == pygame.K_r:
                 return "restart"
+
+            if event.key == pygame.K_w:
+                return "world_map"
+
+            if event.key == pygame.K_s:
+                return "settings"
 
             if event.key == pygame.K_m:
                 return "menu"

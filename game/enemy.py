@@ -304,6 +304,11 @@ class ShadowMonster:
         row,
         col,
     ):
+        if getattr(self, "game", None) is not None:
+            if getattr(self.game, "door_manager", None) is not None:
+                if self.game.door_manager.is_door_locked_at(row, col):
+                    return False
+
         if hasattr(
             self.maze,
             "is_path",

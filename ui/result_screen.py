@@ -53,36 +53,65 @@ class ResultScreen:
             panel_height,
         )
 
-        button_width = 250
-        button_height = 62
-        button_y = self.panel_rect.bottom - 105
+        button_width = 135
+        button_height = 50
+        gap = 12
+        total_width = button_width * 4 + gap * 3
+        start_x = SCREEN_WIDTH // 2 - total_width // 2
+        button_y = self.panel_rect.bottom - 75
 
-        self.play_again_button = AnimatedButton(
-            SCREEN_WIDTH // 2
-            - button_width
-            - 12,
+        self.next_level_button = AnimatedButton(
+            start_x,
             button_y,
             button_width,
             button_height,
-            "Play Again",
-            self.fonts["body"],
-            subtitle="Create a new maze",
+            "Next Level",
+            self.fonts["tiny"],
+            subtitle=""
+        )
+
+        self.replay_button = AnimatedButton(
+            start_x + button_width + gap,
+            button_y,
+            button_width,
+            button_height,
+            "Replay",
+            self.fonts["tiny"],
+            subtitle=""
+        )
+
+        self.level_select_button = AnimatedButton(
+            start_x + (button_width + gap) * 2,
+            button_y,
+            button_width,
+            button_height,
+            "Level Select",
+            self.fonts["tiny"],
+            subtitle=""
         )
 
         self.menu_button = AnimatedButton(
-            SCREEN_WIDTH // 2 + 12,
+            start_x + (button_width + gap) * 3,
             button_y,
             button_width,
             button_height,
             "Main Menu",
-            self.fonts["body"],
-            subtitle="Choose another mode",
+            self.fonts["tiny"],
+            subtitle=""
         )
 
         self.buttons = [
-            self.play_again_button,
+            self.next_level_button,
+            self.replay_button,
+            self.level_select_button,
             self.menu_button,
         ]
+
+        self.has_next_level = False
+        self.stars_earned = 0
+        self.new_record = False
+        self.unlocked_rewards = None
+        self.level_id = None
 
     # =====================================================
     # OPEN RESULT
@@ -95,16 +124,25 @@ class ResultScreen:
         elapsed_seconds,
         battery,
         score,
+        level_id=None,
+        has_next_level=False,
+        stars_earned=0,
+        new_record=False,
+        unlocked_rewards=None,
     ):
         """
         Stores final values and restarts the animations.
         """
-
         self.difficulty = difficulty
         self.moves = moves
         self.elapsed_seconds = elapsed_seconds
         self.battery = battery
         self.score = score
+        self.level_id = level_id
+        self.has_next_level = has_next_level
+        self.stars_earned = stars_earned
+        self.new_record = new_record
+        self.unlocked_rewards = unlocked_rewards
 
         self.animation_time = 0
 
@@ -123,62 +161,59 @@ class ResultScreen:
 
     def update(self, delta_time):
         """
-        Updates result-screen animations.
+        Updates panel scales, final score counters, and button animations.
         """
-
         self.animation_time += delta_time
 
-        self.displayed_score.update(
-            delta_time,
-            speed=3,
-        )
+        mouse_position = pygame.mouse.get_pos()
 
         self.panel_progress.update(
             delta_time,
-            speed=6,
+            speed=4.5,
         )
 
         self.title_progress.update(
             delta_time,
-            speed=5,
+            speed=3.5,
         )
 
-        mouse_position = pygame.mouse.get_pos()
+        self.displayed_score.update(
+            delta_time,
+            speed=2.2,
+        )
 
-        for button in self.buttons:
-            button.update(
-                delta_time,
-                mouse_position,
-            )
+        # Show next level button only if available
+        for btn in self.buttons:
+            if btn == self.next_level_button and not self.has_next_level:
+                continue
+            btn.update(delta_time, mouse_position)
 
     # =====================================================
-    # EVENT HANDLING
+    # EVENTS
     # =====================================================
 
     def handle_event(self, event):
         """
         Handles result-screen controls.
-
-        Possible return values:
-        "play_again"
-        "menu"
         """
+        if self.has_next_level and self.next_level_button.handle_event(event):
+            return "next_level"
 
-        if self.play_again_button.handle_event(
-            event
-        ):
-            return "play_again"
+        if self.replay_button.handle_event(event):
+            return "replay"
+
+        if self.level_select_button.handle_event(event):
+            return "level_select"
 
         if self.menu_button.handle_event(event):
             return "menu"
 
         if event.type == pygame.KEYDOWN:
-            if event.key in (
-                pygame.K_RETURN,
-                pygame.K_SPACE,
-                pygame.K_r,
-            ):
-                return "play_again"
+            if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                return "next_level" if self.has_next_level else "level_select"
+
+            if event.key == pygame.K_r:
+                return "replay"
 
             if event.key in (
                 pygame.K_ESCAPE,
@@ -523,7 +558,6 @@ class ResultScreen:
         """
         Draws the victory title.
         """
-
         alpha = int(
             255
             * max(
@@ -535,14 +569,8 @@ class ResultScreen:
             )
         )
 
-        title_surface = self.fonts[
-            "heading"
-        ].render(
-            "MAZE ESCAPED!",
-            True,
-            WHITE,
-        )
-
+        display_title = "LEVEL COMPLETE!" if self.level_id else "MAZE ESCAPED!"
+        title_surface = self.fonts["heading"].render(display_title, True, WHITE)
         title_surface.set_alpha(alpha)
 
         surface.blit(
@@ -555,14 +583,11 @@ class ResultScreen:
             ),
         )
 
-        subtitle_surface = self.fonts[
-            "small"
-        ].render(
-            "You found the exit before the light disappeared.",
-            True,
-            TEXT_SECONDARY,
-        )
+        sub_text = "You successfully solved the maze and found the exit!"
+        if self.level_id:
+            sub_text = "You unlocked the next challenge."
 
+        subtitle_surface = self.fonts["small"].render(sub_text, True, TEXT_SECONDARY)
         subtitle_surface.set_alpha(alpha)
 
         surface.blit(
@@ -575,11 +600,19 @@ class ResultScreen:
             ),
         )
 
+        # Draw stars
+        stars_y = self.panel_rect.y + 245
+        for i in range(3):
+            star_x = SCREEN_WIDTH // 2 + (i - 1) * 50
+            color = YELLOW if i < self.stars_earned else (70, 70, 80)
+            star_surf = self.fonts["heading"].render("★", True, color)
+            star_surf.set_alpha(alpha)
+            surface.blit(star_surf, star_surf.get_rect(center=(star_x, stars_y)))
+
     def draw_score(self, surface):
         """
         Draws the animated final score.
         """
-
         score_label = self.fonts[
             "tiny"
         ].render(
@@ -593,7 +626,7 @@ class ResultScreen:
             score_label.get_rect(
                 center=(
                     SCREEN_WIDTH // 2,
-                    self.panel_rect.y + 236,
+                    self.panel_rect.y + 295,
                 )
             ),
         )
@@ -615,7 +648,7 @@ class ResultScreen:
             score_surface.get_rect(
                 center=(
                     SCREEN_WIDTH // 2,
-                    self.panel_rect.y + 288,
+                    self.panel_rect.y + 338,
                 )
             ),
         )
@@ -713,7 +746,7 @@ class ResultScreen:
             SCREEN_WIDTH - total_width
         ) // 2
 
-        card_y = self.panel_rect.y + 345
+        card_y = self.panel_rect.y + 400
 
         cards = [
             (
@@ -798,7 +831,6 @@ class ResultScreen:
         """
         Draws the complete result screen.
         """
-
         self.draw_background(surface)
 
         self.particle_manager.draw_fireflies(
@@ -815,7 +847,17 @@ class ResultScreen:
         self.draw_score(surface)
         self.draw_statistics(surface)
 
+        # Draw dynamic notification alert
+        if self.new_record or self.unlocked_rewards:
+            y_pos = self.panel_rect.y + 490
+            text = "NEW BEST RECORD!" if self.new_record else f"UNLOCKED: {self.unlocked_rewards}!"
+            color = YELLOW if self.new_record else GREEN
+            notify_surf = self.fonts["body"].render(text, True, color)
+            surface.blit(notify_surf, notify_surf.get_rect(center=(SCREEN_WIDTH // 2, y_pos)))
+
         for button in self.buttons:
+            if button == self.next_level_button and not self.has_next_level:
+                continue
             button.draw(surface)
 
         self.draw_footer(surface)

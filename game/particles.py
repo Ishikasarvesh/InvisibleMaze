@@ -821,3 +821,77 @@ class ParticleManager:
                 gravity=50,
             )
             self.particles.append(particle)
+
+    def create_key_burst(self, x, y, color, amount=20):
+        """
+        Creates matching color sparkles when a key is picked up.
+        """
+        rgb = (255, 255, 255)
+        if color == "Red": rgb = (245, 82, 95)
+        elif color == "Blue": rgb = (89, 145, 255)
+        elif color == "Green": rgb = (69, 230, 154)
+        elif color == "Gold": rgb = (255, 215, 0)
+        
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(40, 120)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.35, 0.8),
+                radius=random.uniform(1.5, 3.5),
+                color=random.choice([rgb, (255, 255, 255)]),
+                gravity=30,
+            )
+            self.particles.append(particle)
+
+    def create_unlock_shards(self, x, y, color, amount=15):
+        """
+        Spawns glowing cracking shards and smoke when a door is unlocked.
+        """
+        rgb = (255, 255, 255)
+        if color == "Red": rgb = (245, 82, 95)
+        elif color == "Blue": rgb = (89, 145, 255)
+        elif color == "Green": rgb = (69, 230, 154)
+        elif color == "Gold": rgb = (255, 215, 0)
+        
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(20, 90)
+            particle = Particle(
+                x=x + random.uniform(-10, 10),
+                y=y + random.uniform(-10, 10),
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.4, 0.9),
+                radius=random.uniform(2.0, 4.0),
+                color=random.choice([rgb, (30, 30, 35)]),
+                gravity=15,
+            )
+            self.particles.append(particle)
+
+    def create_exit_explosion(self, x, y, amount=45):
+        """
+        Spawns a large green/neon explosion when all doors are unlocked.
+        """
+        colors = [
+            (71, 235, 171), # EXIT_COLOR
+            (174, 255, 219), # GREEN_LIGHT
+            (255, 255, 255)
+        ]
+        for _ in range(amount):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(60, 220)
+            particle = Particle(
+                x=x,
+                y=y,
+                velocity_x=math.cos(angle) * speed,
+                velocity_y=math.sin(angle) * speed,
+                lifetime=random.uniform(0.6, 1.3),
+                radius=random.uniform(2.5, 6.0),
+                color=random.choice(colors),
+                gravity=25,
+            )
+            self.particles.append(particle)

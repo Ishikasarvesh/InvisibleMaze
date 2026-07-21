@@ -11,6 +11,18 @@ from game.settings import (
     WHITE,
 )
 
+_SUBTITLE_FONT_CACHE = None
+
+
+def get_subtitle_font():
+    global _SUBTITLE_FONT_CACHE
+    if _SUBTITLE_FONT_CACHE is None:
+        try:
+            _SUBTITLE_FONT_CACHE = pygame.font.SysFont("segoeui", 13)
+        except Exception:
+            _SUBTITLE_FONT_CACHE = pygame.font.Font(None, 16)
+    return _SUBTITLE_FONT_CACHE
+
 
 class AnimatedButton:
     def __init__(
@@ -28,7 +40,7 @@ class AnimatedButton:
             x,
             y,
             width,
-            height
+            height,
         )
 
         self.text = text
@@ -83,7 +95,7 @@ class AnimatedButton:
             0,
             0,
             width,
-            height
+            height,
         )
 
         animated_rect.center = self.base_rect.center
@@ -117,41 +129,41 @@ class AnimatedButton:
         )
 
         shadow_rect = animated_rect.copy()
-        shadow_rect.y += 7
+        shadow_rect.y += 6
 
         shadow_surface = pygame.Surface(
             (
-                shadow_rect.width + 20,
-                shadow_rect.height + 20
+                shadow_rect.width + 16,
+                shadow_rect.height + 16,
             ),
-            pygame.SRCALPHA
+            pygame.SRCALPHA,
         )
 
         pygame.draw.rect(
             shadow_surface,
-            (0, 0, 0, 90),
+            (0, 0, 0, 70),
             pygame.Rect(
-                10,
-                10,
+                8,
+                8,
                 shadow_rect.width,
-                shadow_rect.height
+                shadow_rect.height,
             ),
-            border_radius=16
+            border_radius=14,
         )
 
         surface.blit(
             shadow_surface,
             (
-                shadow_rect.x - 10,
-                shadow_rect.y - 10
-            )
+                shadow_rect.x - 8,
+                shadow_rect.y - 8,
+            ),
         )
 
         pygame.draw.rect(
             surface,
             background_color,
             animated_rect,
-            border_radius=16
+            border_radius=14,
         )
 
         border_color = (
@@ -180,20 +192,20 @@ class AnimatedButton:
             border_color,
             animated_rect,
             width=2,
-            border_radius=16
+            border_radius=14,
         )
 
         title_surface = self.font.render(
             self.text,
             True,
-            WHITE if self.enabled else TEXT_SECONDARY
+            WHITE if self.enabled else TEXT_SECONDARY,
         )
 
         if self.subtitle:
             title_rect = title_surface.get_rect(
                 center=(
                     animated_rect.centerx,
-                    animated_rect.centery - 10
+                    animated_rect.centery - 10,
                 )
             )
         else:
@@ -204,27 +216,23 @@ class AnimatedButton:
         surface.blit(title_surface, title_rect)
 
         if self.subtitle:
-            subtitle_font = pygame.font.SysFont(
-                "segoeui",
-                14
-            )
-
+            subtitle_font = get_subtitle_font()
             subtitle_surface = subtitle_font.render(
                 self.subtitle,
                 True,
-                TEXT_SECONDARY
+                TEXT_SECONDARY,
             )
 
             subtitle_rect = subtitle_surface.get_rect(
                 center=(
                     animated_rect.centerx,
-                    animated_rect.centery + 18
+                    animated_rect.centery + 15,
                 )
             )
 
             surface.blit(
                 subtitle_surface,
-                subtitle_rect
+                subtitle_rect,
             )
 
     def handle_event(self, event):
